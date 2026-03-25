@@ -5,15 +5,13 @@ import 'dart:ui' as ui;
 
 import 'package:echo_reading/models/book.dart';
 import 'package:echo_reading/models/read_log.dart';
+import 'package:echo_reading/env_config.dart';
 import 'package:echo_reading/services/api_service.dart';
-import 'package:echo_reading/services/doubao_service.dart';
 import 'package:echo_reading/widgets/responsive_layout.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
-
-final _doubao = DoubaoService();
 
 class ReadingJournalDetailScreen extends StatefulWidget {
   const ReadingJournalDetailScreen({
@@ -124,19 +122,25 @@ class _ReadingJournalDetailScreenState
 }
 ''';
 
-    final content = await _doubao.chatCompletion(
-      messages: [
-        {'role': 'system', 'content': '你是儿童阅读鼓励教练。'},
-        {
-          'role': 'user',
-          'content': '书籍概要：\n$summary\n\n孩子复述：\n$transcript\n\n$prompt',
-        },
-      ],
-      temperature: 0.7,
-      jsonMode: true,
-    );
+    final messages = [
+      {'role': 'system', 'content': '你是儿童阅读鼓励教练。'},
+      {
+        'role': 'user',
+        'content': '书籍概要：\n$summary\n\n孩子复述：\n$transcript\n\n$prompt',
+      },
+    ];
+    if (!EnvConfig.isConfigured) {
+      throw Exception('请配置后端 API_BASE_URL 与 ARK_* 或 OPENROUTER_API_KEY（见 docs）');
+    }
+    final content = await ApiService.chatCompletion(messages: messages, temperature: 0.7);
 
-    final result = jsonDecode(content) as Map<String, dynamic>;
+    String raw = content.trim();
+    if (raw.startsWith('```')) {
+      final end = raw.indexOf('```', 3);
+      if (end != -1) raw = raw.substring(3, end).trim();
+      if (raw.startsWith('json')) raw = raw.substring(4).trim();
+    }
+    final result = jsonDecode(raw) as Map<String, dynamic>;
     final comment = (result['comment'] as String?)?.trim();
     final score = (result['logic_score'] as num?)?.toInt();
 

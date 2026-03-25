@@ -50,6 +50,7 @@ dependencies:
   whisper_kit: ^0.3.0
   speech_to_text: ^7.0.0
   web_socket_channel: ^3.0.2
+  qr_flutter: ^4.1.0
 
 # opencv_dart 透视矫正需要 calib3d
 hooks:

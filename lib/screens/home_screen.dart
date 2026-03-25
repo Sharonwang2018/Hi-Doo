@@ -36,55 +36,68 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    final topPadding = MediaQuery.of(context).padding.top + 20;
+    return Padding(
+      padding: EdgeInsets.only(top: topPadding),
+      child: Scaffold(
       appBar: AppBar(
-        actions: [
-          if (EnvConfig.isConfigured)
-            if (_isLoggedIn)
-              PopupMenuButton<String>(
-                icon: const Icon(Icons.person_rounded),
-                onSelected: (value) async {
-                  if (value == 'logout') {
-                    await ApiAuthService.signOut();
-                    _checkAuth();
-                  }
-                },
-                itemBuilder: (_) => [
-                  const PopupMenuItem(
-                    value: 'logout',
-                    child: Row(
-                      children: [
-                        Icon(Icons.logout_rounded),
-                        SizedBox(width: 8),
-                        Text('退出登录'),
-                      ],
-                    ),
-                  ),
-                ],
-              )
-            else
-              TextButton.icon(
-                onPressed: () async {
-                  final ok = await Navigator.push<bool>(
-                    context,
-                    MaterialPageRoute(builder: (_) => const LoginScreen()),
-                  );
-                  if (ok == true) _checkAuth();
-                },
-                icon: const Icon(Icons.login_rounded, size: 20),
-                label: const Text('登录'),
-              ),
-        ],
+        leadingWidth: 80,
+        leading: const SizedBox(),
+        centerTitle: true,
         title: Text(
           'Hi-Doo 绘读',
           style: GoogleFonts.quicksand(
-            fontSize: ResponsiveLayout.isTablet(context) ? 28 : 24,
+            fontSize: 24,
             fontWeight: FontWeight.bold,
             color: const Color(0xFF1a1a1a),
           ),
         ),
+        actions: [
+          if (EnvConfig.isConfigured)
+            if (_isLoggedIn)
+              Padding(
+                padding: const EdgeInsets.only(right: 20),
+                child: PopupMenuButton<String>(
+                  icon: const Icon(Icons.person_rounded),
+                  onSelected: (value) async {
+                    if (value == 'logout') {
+                      await ApiAuthService.signOut();
+                      _checkAuth();
+                    }
+                  },
+                  itemBuilder: (_) => [
+                    const PopupMenuItem(
+                      value: 'logout',
+                      child: Row(
+                        children: [
+                          Icon(Icons.logout_rounded),
+                          SizedBox(width: 8),
+                          Text('退出登录'),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            else
+              Padding(
+                padding: const EdgeInsets.only(right: 20),
+                child: TextButton.icon(
+                  onPressed: () async {
+                    final ok = await Navigator.push<bool>(
+                      context,
+                      MaterialPageRoute(builder: (_) => const LoginScreen()),
+                    );
+                    if (ok == true) _checkAuth();
+                  },
+                  icon: const Icon(Icons.login_rounded, size: 20),
+                  label: const Text('登录'),
+                ),
+              ),
+        ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(36),
           child: Padding(
@@ -92,28 +105,51 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Text(
               '会读，更会说 | Read it, Speak it.',
               style: GoogleFonts.quicksand(
-                fontSize: ResponsiveLayout.isTablet(context) ? 15 : 14,
+                fontSize: 14,
                 fontWeight: FontWeight.w600,
                 color: const Color(0xFF333333),
               ),
+              textAlign: TextAlign.center,
             ),
           ),
         ),
       ),
       body: SafeArea(
-        child: ResponsiveLayout.constrainToMaxWidth(
-          context,
-          Padding(
-            padding: ResponsiveLayout.padding(context),
-            child: ResponsiveLayout.isTablet(context)
-                ? _TabletLayout(
-                    scanTap: () => _push(context, const ScanBookScreen()),
-                    photoTap: () => _push(context, const PhotoReadPageScreen()),
-                  )
-                : _PhoneLayout(
-                    scanTap: () => _push(context, const ScanBookScreen()),
-                    photoTap: () => _push(context, const PhotoReadPageScreen()),
+        top: false,
+        child: Column(
+            children: [
+              const SizedBox(height: 60),
+              Expanded(
+                child: ResponsiveLayout.constrainToMaxWidth(
+                  context,
+                  Padding(
+                    padding: ResponsiveLayout.padding(context),
+                    child: Center(
+                      child: ResponsiveLayout.isTablet(context)
+                          ? _TabletLayout(
+                              scanTap: () => _push(context, const ScanBookScreen()),
+                              photoTap: () => _push(context, const PhotoReadPageScreen()),
+                            )
+                          : _PhoneLayout(
+                              scanTap: () => _push(context, const ScanBookScreen()),
+                              photoTap: () => _push(context, const PhotoReadPageScreen()),
+                            ),
+                    ),
                   ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                child: Text(
+                  '『Hi-Doo绘读:AI陪伴,悦读成长』',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSurface.withAlpha(128),
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -136,20 +172,21 @@ class _PhoneLayout extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const SizedBox(height: 20),
+        const Spacer(flex: 3),
         _MenuCard(
           icon: Icons.qr_code_scanner_rounded,
-          title: '扫码录入书籍',
+          title: '扫页码 / 扫码录入',
           subtitle: '扫描 ISBN 录入书籍，支持复述或共读记录',
           onTap: scanTap,
         ),
         const SizedBox(height: 12),
         _MenuCard(
           icon: Icons.camera_alt_rounded,
-          title: '拍照读页',
-          subtitle: '翻到哪页拍哪页，AI 读给你听，不存全书无侵权',
+          title: 'AI 读书（拍照读页）',
+          subtitle: '翻到哪页拍哪页，AI 识别后读给你听，不存全书无侵权',
           onTap: photoTap,
         ),
+        const Spacer(flex: 2),
       ],
     );
   }
@@ -166,15 +203,16 @@ class _TabletLayout extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const SizedBox(height: 28),
+        const Spacer(flex: 2),
         Expanded(
+          flex: 3,
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Expanded(
                 child: _MenuCard(
                   icon: Icons.qr_code_scanner_rounded,
-                  title: '扫码录入书籍',
+                  title: '扫页码 / 扫码录入',
                   subtitle: '扫描 ISBN 录入书籍，支持复述或共读记录',
                   onTap: scanTap,
                 ),
@@ -183,14 +221,15 @@ class _TabletLayout extends StatelessWidget {
               Expanded(
                 child: _MenuCard(
                   icon: Icons.camera_alt_rounded,
-                  title: '拍照读页',
-                  subtitle: '翻到哪页拍哪页，AI 读给你听，不存全书无侵权',
+                  title: 'AI 读书（拍照读页）',
+                  subtitle: '翻到哪页拍哪页，AI 识别后读给你听，不存全书无侵权',
                   onTap: photoTap,
                 ),
               ),
             ],
           ),
         ),
+        const Spacer(flex: 2),
       ],
     );
   }
@@ -214,32 +253,33 @@ class _MenuCard extends StatelessWidget {
     final isTablet = ResponsiveLayout.isTablet(context);
     final iconSz = ResponsiveLayout.iconSize(context);
     final padding = ResponsiveLayout.cardPadding(context);
+    const cardRadius = 32.0;
+    const minCardHeight = 160.0;
 
-    return Card(
-      clipBehavior: Clip.antiAlias,
+    return Material(
+      color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        child: Padding(
+        borderRadius: BorderRadius.circular(cardRadius),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: minCardHeight),
           padding: EdgeInsets.all(padding),
-          child: isTablet
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surface,
+            borderRadius: BorderRadius.circular(cardRadius),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withAlpha(20),
+                blurRadius: 16,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+                  child: isTablet
               ? Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Container(
-                      padding: EdgeInsets.all(padding),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context)
-                            .colorScheme
-                            .primaryContainer
-                            .withAlpha(200),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Icon(
-                        icon,
-                        size: iconSz * 1.5,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                    ),
+                    _iconBox(context, icon, iconSz * 1.5, padding),
                     SizedBox(height: padding),
                     Text(
                       title,
@@ -257,41 +297,44 @@ class _MenuCard extends StatelessWidget {
                     Icon(Icons.chevron_right_rounded, size: iconSz),
                   ],
                 )
-              : Row(
+              : Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context)
-                            .colorScheme
-                            .primaryContainer
-                            .withAlpha(200),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Icon(
-                        icon,
-                        size: iconSz,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
+                    _iconBox(context, icon, iconSz, padding),
+                    SizedBox(height: padding),
+                    Text(title, style: Theme.of(context).textTheme.titleLarge),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: Theme.of(context).textTheme.bodyMedium,
                     ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(title, style: Theme.of(context).textTheme.titleLarge),
-                          const SizedBox(height: 4),
-                          Text(
-                            subtitle,
-                            style: Theme.of(context).textTheme.bodyMedium,
-                          ),
-                        ],
-                      ),
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Icon(Icons.chevron_right_rounded, size: iconSz),
                     ),
-                    Icon(Icons.chevron_right_rounded, size: iconSz),
                   ],
                 ),
         ),
+      ),
+    );
+  }
+
+  Widget _iconBox(BuildContext context, IconData iconData, double iconSz, double padding) {
+    return Container(
+      padding: EdgeInsets.all(padding),
+      decoration: BoxDecoration(
+        color: Theme.of(context)
+            .colorScheme
+            .primaryContainer
+            .withAlpha(200),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Icon(
+        iconData,
+        size: iconSz,
+        color: Theme.of(context).colorScheme.primary,
       ),
     );
   }

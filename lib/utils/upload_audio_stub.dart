@@ -22,16 +22,26 @@ Future<String> uploadAudioToCloudBase(
   final filename = 'audio_${DateTime.now().millisecondsSinceEpoch}.$ext';
 
   final uri = Uri.parse('${EnvConfig.apiBaseUrl}/upload/audio');
-  final request = http.MultipartRequest('POST', uri);
-  request.headers['Authorization'] = 'Bearer $token';
-  request.files.add(http.MultipartFile.fromBytes(
-    'file',
-    bytes,
-    filename: filename,
-  ));
 
-  final streamed = await request.send();
-  final res = await http.Response.fromStream(streamed);
+  Future<http.Response> sendWithToken(String t) async {
+    final request = http.MultipartRequest('POST', uri);
+    request.headers['Authorization'] = 'Bearer $t';
+    request.files.add(http.MultipartFile.fromBytes(
+      'file',
+      bytes,
+      filename: filename,
+    ));
+    final streamed = await request.send();
+    return http.Response.fromStream(streamed);
+  }
+
+  var res = await sendWithToken(token);
+  if (res.statusCode == 401) {
+    await ApiAuthService.recoverSessionAfterUnauthorized();
+    final t2 = await ApiAuthService.getToken();
+    if (t2 == null || t2.isEmpty) throw Exception('请先登录');
+    res = await sendWithToken(t2);
+  }
   if (res.statusCode != 200 && res.statusCode != 201) {
     throw Exception('上传失败: ${res.body}');
   }

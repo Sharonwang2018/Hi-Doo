@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:echo_reading/models/book.dart';
 import 'package:echo_reading/screens/book_confirm_screen.dart';
+import 'package:echo_reading/screens/manual_book_entry_screen.dart';
 import 'package:echo_reading/services/book_api_service.dart';
 import 'package:echo_reading/widgets/responsive_layout.dart';
 import 'package:flutter/material.dart';
@@ -27,6 +31,22 @@ class _ScanBookScreenState extends State<ScanBookScreen> {
   final BookApiService _bookApiService = BookApiService();
 
   bool _isProcessing = false;
+  /// 从扫码到确认页返回整段流程中为 true，避免去掉转圈后误触发第二次识别。
+  bool _scanFlowActive = false;
+
+  static const Duration _fetchIsbnTimeout = Duration(seconds: 30);
+
+  Future<void> _safeScannerStop() async {
+    try {
+      await _controller.stop().timeout(const Duration(seconds: 5));
+    } catch (_) {}
+  }
+
+  Future<void> _safeScannerStart() async {
+    try {
+      await _controller.start().timeout(const Duration(seconds: 5));
+    } catch (_) {}
+  }
 
   @override
   void dispose() {
@@ -34,8 +54,36 @@ class _ScanBookScreenState extends State<ScanBookScreen> {
     super.dispose();
   }
 
+  Future<void> _openManualEntry({String? initialIsbn}) async {
+    if (mounted) {
+      ScaffoldMessenger.of(context).clearSnackBars();
+    }
+    await _controller.stop();
+    if (!mounted) return;
+    final book = await Navigator.push<BookLookupResult?>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ManualBookEntryScreen(initialIsbn: initialIsbn),
+      ),
+    );
+    if (!mounted) return;
+    await _controller.start();
+    if (!mounted) return;
+    if (book == null) return;
+    final saved = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => BookConfirmScreen(book: book)),
+    );
+    if (!mounted) return;
+    if (saved == true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('书籍录入完成')),
+      );
+    }
+  }
+
   Future<void> _handleDetect(BarcodeCapture capture) async {
-    if (_isProcessing) return;
+    if (_isProcessing || _scanFlowActive) return;
 
     final raw = capture.barcodes
         .map((barcode) => barcode.rawValue)
@@ -51,40 +99,70 @@ class _ScanBookScreenState extends State<ScanBookScreen> {
       return;
     }
 
+    _scanFlowActive = true;
     setState(() {
       _isProcessing = true;
     });
 
-    await _controller.stop();
+    // stop() 若在 try 外且 Web 上永不 complete，下面的 finally 永远执行不到，会无限转圈。
     try {
-      final book = await _bookApiService.fetchByIsbn(isbn);
-      if (!mounted) return;
-      if (book == null) {
+      await _safeScannerStop();
+
+      try {
+        final book = await _bookApiService.fetchByIsbn(isbn).timeout(
+          _fetchIsbnTimeout,
+          onTimeout: () => throw TimeoutException(
+            '查书超时，请改用手动输入',
+            _fetchIsbnTimeout,
+          ),
+        );
+        if (!mounted) return;
+        if (book == null) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('扫码书库中没有此书，请手动输入书名等信息'),
+              duration: const Duration(seconds: 5),
+              action: SnackBarAction(
+                label: '去输入',
+                onPressed: () {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) _openManualEntry(initialIsbn: isbn);
+                  });
+                },
+              ),
+            ),
+          );
+          await _safeScannerStart();
+          return;
+        }
+
+        // push 会阻塞到用户从确认页返回；若等到那时才在 finally 里清 _isProcessing，
+        // Safari/Chrome 上扫码页会一直盖着转圈（看起来像「永远转圈」）。
+        if (mounted) {
+          setState(() => _isProcessing = false);
+        }
+
+        final saved = await Navigator.of(context).push<bool>(
+          MaterialPageRoute(builder: (_) => BookConfirmScreen(book: book)),
+        );
+
+        if (!mounted) return;
+        if (saved == true) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('扫码录入完成')));
+        }
+        await _safeScannerStart();
+      } catch (error) {
+        if (!mounted) return;
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('未查询到该 ISBN 对应书籍')));
-        await _controller.start();
-        return;
+        ).showSnackBar(SnackBar(content: Text('处理失败：$error')));
+        await _safeScannerStart();
       }
-
-      final saved = await Navigator.of(context).push<bool>(
-        MaterialPageRoute(builder: (_) => BookConfirmScreen(book: book)),
-      );
-
-      if (!mounted) return;
-      if (saved == true) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('扫码录入完成')));
-      }
-      await _controller.start();
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('处理失败：$error')));
-      await _controller.start();
     } finally {
+      _scanFlowActive = false;
       if (mounted) {
         setState(() {
           _isProcessing = false;
@@ -96,7 +174,17 @@ class _ScanBookScreenState extends State<ScanBookScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('扫码录入书籍')),
+      appBar: AppBar(
+        title: const Text('扫码录入书籍'),
+        actions: [
+          TextButton(
+            onPressed: _isProcessing
+                ? null
+                : () => _openManualEntry(),
+            child: const Text('手动输入'),
+          ),
+        ],
+      ),
       body: Stack(
         fit: StackFit.expand,
         children: [

@@ -45,8 +45,12 @@ class _BookConfirmScreenState extends State<BookConfirmScreen> {
       final isLoadFailed = msg.contains('Load failed') || msg.contains('ClientException');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(isLoadFailed ? '无法连接服务器。iPhone 访问自签名证书常失败，请在电脑用 ngrok http 3000 获取公网 HTTPS 地址再访问' : msg),
-          duration: const Duration(seconds: 6),
+          content: Text(
+            isLoadFailed
+                ? '无法连接服务器。iPhone Safari 对局域网自签名 HTTPS 常失败，请用 HTTP=1 ./run_all.sh 重建并访问 http://…，或 ngrok 等可信 HTTPS'
+                : msg,
+          ),
+          duration: const Duration(seconds: 8),
         ),
       );
     } finally {
@@ -118,14 +122,14 @@ class _BookConfirmScreenState extends State<BookConfirmScreen> {
                       builder: (_) => RecordingScreen(
                         bookId: savedBook.id,
                         summary: savedBook.summary ?? Book.defaultSummary,
+                        bookTitle: savedBook.title,
                       ),
                     ),
                   );
                   if (!context.mounted) return;
-                  navigator.pop(true);
                 },
                 icon: const Icon(Icons.mic_rounded),
-                label: const Text('复述模式：AI 引导孩子复述故事'),
+                label: const Text('复述模式：自由复述，AI 点评'),
               ),
               const SizedBox(height: 12),
               OutlinedButton.icon(
@@ -139,7 +143,6 @@ class _BookConfirmScreenState extends State<BookConfirmScreen> {
                     ),
                   );
                   if (!context.mounted) return;
-                  navigator.pop(true);
                 },
                 icon: const Icon(Icons.favorite_border),
                 label: const Text('共读模式：仅记录亲子共读'),

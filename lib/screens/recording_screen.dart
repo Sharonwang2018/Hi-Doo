@@ -1,24 +1,24 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
-import 'dart:typed_data';
-
 import 'package:echo_reading/env_config.dart';
-import 'package:echo_reading/services/doubao_service.dart';
 import 'package:echo_reading/services/api_auth_service.dart';
 import 'package:echo_reading/services/api_service.dart';
 import 'package:echo_reading/utils/recording_path.dart';
 import 'package:echo_reading/utils/upload_audio.dart';
+import 'package:echo_reading/screens/retelling_complete_screen.dart';
+import 'package:echo_reading/services/ai_feedback_service.dart';
+import 'package:echo_reading/services/page_tts_audio_impl_stub.dart'
+    if (dart.library.html) 'package:echo_reading/services/page_tts_audio_impl_web.dart' as tts_audio;
 import 'package:echo_reading/services/page_tts_service.dart';
+import 'package:echo_reading/services/retelling_intro_prompts.dart';
 import 'package:echo_reading/services/transcription_service.dart';
-import 'package:echo_reading/services/doubao_streaming_asr_service.dart';
 import 'package:echo_reading/widgets/responsive_layout.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:record/record.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
-final _doubao = DoubaoService();
 final _transcriptionService = TranscriptionService();
 const _audioBucket = 'read-audios';
 
@@ -27,12 +27,17 @@ class RecordingScreen extends StatefulWidget {
     super.key,
     required this.bookId,
     required this.summary,
+    this.bookTitle,
     this.language,
+    this.childAgeBand,
   });
 
   final String bookId;
   final String summary;
+  final String? bookTitle;
   final String? language;
+  /// 年龄档：preschool / primary / 不传即 general，用于引导语多维题库
+  final String? childAgeBand;
 
   @override
   State<RecordingScreen> createState() => _RecordingScreenState();
@@ -40,151 +45,99 @@ class RecordingScreen extends StatefulWidget {
 
 class _RecordingScreenState extends State<RecordingScreen> {
   final AudioRecorder _recorder = AudioRecorder();
-  final AudioRecorder _streamRecorder = AudioRecorder(); // 用于边说边识别
   final PageTtsService _ttsService = PageTtsService();
   final stt.SpeechToText _speech = stt.SpeechToText();
-  final DoubaoStreamingAsrService _streamingAsr = DoubaoStreamingAsrService();
 
   StreamSubscription<Amplitude>? _amplitudeSubscription;
-  StreamSubscription<Uint8List>? _streamSubscription;
   Timer? _recordingTimer;
   String _speechTranscript = '';
-  Future<void> Function()? _closeStreamingAsr;
 
-  List<String> _questions = const [];
   List<double> _waveBars = List<double>.filled(20, 0.1);
 
   String? _audioPath;
   String? _transcript;
   String _language = 'zh';
 
-  bool _loadingQuestions = true;
   bool _recording = false;
   bool _processing = false;
   bool _usedOpusEncoder = false;
+  bool _introPlayed = false;
+  bool _isPlayingIntro = false;
+  bool _aiReviewing = false;
 
   int _seconds = 0;
+  /// 页面初始化时随机抽中的一条引导语（索引），整次会话固定
+  late int _pickedPromptIndex;
 
   @override
   void initState() {
     super.initState();
     _language = widget.language ?? 'zh';
-    _loadGuideQuestions();
+    _pickedPromptIndex = Random().nextInt(RetellingIntroPrompts.professionalPrompts.length);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // iOS Safari：进页自动播 TTS 无用户手势，豆包 MP3 无法播放；仅原生自动播引导语
+      if (mounted && !kIsWeb) _playIntroIfNeeded();
+    });
   }
 
   @override
   void dispose() {
     _amplitudeSubscription?.cancel();
-    _streamSubscription?.cancel();
     _recordingTimer?.cancel();
-    _closeStreamingAsr?.call();
     try {
       _speech.stop();
     } catch (_) {}
     _recorder.dispose();
-    _streamRecorder.dispose();
     _ttsService.dispose();
     super.dispose();
   }
 
-  List<String> _defaultQuestionsFor(String lang) {
-    switch (lang) {
-      case 'en':
-        return const [
-          'Who impressed you most in the story?',
-          'What happened at the beginning?',
-          'What would you do if you were in the story?',
-        ];
-      case 'mixed':
-        return const [
-          '故事里谁最让你印象深刻？Who impressed you most?',
-          '故事开始发生了什么？What happened at the start?',
-          '如果你在故事里会怎么做？What would you do?',
-        ];
-      default:
-        return const [
-          '故事里最让你印象深刻的是谁？',
-          '故事开始发生了什么事情？',
-          '如果你在故事里，你会怎么做？',
-        ];
-    }
+  String _introPhraseFor(String lang) {
+    final p = RetellingIntroPrompts.professionalPrompts[_pickedPromptIndex];
+    return lang == 'en' ? p.en : p.zh;
   }
 
-  Future<void> _loadGuideQuestions() async {
-    setState(() {
-      _loadingQuestions = true;
-    });
-
-    try {
-      final result = await _askDoubaoForQuestions(widget.summary, _language);
-      if (!mounted) return;
-      setState(() {
-        _questions = result;
-      });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _questions = _defaultQuestionsFor(_language);
-      });
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('AI 提问获取失败，已使用默认问题：$error')));
-    } finally {
-      if (mounted) {
-        setState(() {
-          _loadingQuestions = false;
-        });
-      }
-    }
-  }
-
-  Future<List<String>> _askDoubaoForQuestions(String summary, String lang) async {
-    final (langHint, outputHint) = switch (lang) {
-      'en' => (
-          'Generate 3 simple guiding questions in English for a 5-year-old to retell the story.',
-          'Return JSON: {"questions":["Q1","Q2","Q3"]}',
-        ),
-      'mixed' => (
-          'Generate 3 simple guiding questions in Chinese-English mix (中英混合) for a 5-year-old.',
-          'Return JSON: {"questions":["问题1/Q1","问题2/Q2","问题3/Q3"]}',
-        ),
-      _ => (
-          '给 5 岁孩子提 3 个简单的中文启发性问题，引导他复述故事。',
-          '返回 JSON: {"questions":["问题1","问题2","问题3"]}',
-        ),
-    };
-
-    final content = await _doubao.chatCompletion(
-      messages: [
-        {'role': 'system', 'content': 'You are a children\'s reading guide. Output must be simple, gentle, suitable for ages 3-8.'},
-        {
-          'role': 'user',
-          'content':
-              '''
-Based on this book summary, $langHint
-
-Book summary:
-$summary
-
-$outputHint
-''',
-        },
-      ],
-      temperature: 0.6,
-      jsonMode: true,
+  Future<void> _playIntroContent() async {
+    await _ttsService.speakWithDoubao(
+      _introPhraseFor(_language),
+      languageHint: _language,
     );
+  }
 
-    final parsed = jsonDecode(content) as Map<String, dynamic>;
-    final list = (parsed['questions'] as List<dynamic>? ?? const [])
-        .map((e) => e.toString().trim())
-        .where((e) => e.isNotEmpty)
-        .take(3)
-        .toList();
+  Future<void> _playIntroIfNeeded() async {
+    if (_introPlayed) return;
+    _introPlayed = true;
+    try {
+      await _playIntroContent();
+    } catch (_) {}
+  }
 
-    if (list.length < 3) {
-      throw Exception('豆包返回问题数量不足 3 条');
+  /// Web：须同步进入 [speakDoubaoFromUserGesture]（见 [PageTtsService]），勿用 async 包一层。
+  void _playIntroPhrase() {
+    if (_isPlayingIntro) return;
+    if (kIsWeb) {
+      tts_audio.unlockAudioContextSync();
     }
-    return list;
+    setState(() => _isPlayingIntro = true);
+    _ttsService.speakDoubaoFromUserGesture(
+      _introPhraseFor(_language),
+      languageHint: _language,
+      onComplete: () {
+        if (mounted) setState(() => _isPlayingIntro = false);
+      },
+      onError: (e) {
+        if (mounted) {
+          setState(() => _isPlayingIntro = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('播放失败：$e')),
+          );
+        }
+      },
+    );
+  }
+
+  String _speechLocaleFor(String lang) {
+    return lang == 'en' ? 'en_US' : 'zh_CN';
   }
 
   Future<void> _startRecording() async {
@@ -201,7 +154,7 @@ $outputHint
       }
 
       final filePath = getRecordingPath();
-      // Web 用 Opus（豆包支持 OGG OPUS），移动端用 AAC
+      // Web 用 Opus，移动端用 AAC
       final config = kIsWeb
           ? const RecordConfig(
               encoder: AudioEncoder.opus,
@@ -228,31 +181,7 @@ $outputHint
       _usedOpusEncoder = effectiveConfig.encoder == AudioEncoder.opus;
 
       _speechTranscript = '';
-      bool useDoubaoStream = false;
-      if (kIsWeb && await _streamingAsr.isConfigured) {
-        try {
-          final pcmSupported = await _streamRecorder.isEncoderSupported(AudioEncoder.pcm16bits);
-          if (pcmSupported) {
-            _closeStreamingAsr = await _streamingAsr.connect(
-              onText: (t) {
-                if (mounted && _recording) setState(() => _speechTranscript = t);
-              },
-              onError: (_) {},
-              language: _language,
-            );
-            final stream = await _streamRecorder.startStream(const RecordConfig(
-              encoder: AudioEncoder.pcm16bits,
-              sampleRate: 16000,
-              numChannels: 1,
-            ));
-            _streamSubscription = stream.listen((chunk) {
-              _streamingAsr.sendAudio(chunk);
-            });
-            useDoubaoStream = true;
-          }
-        } catch (_) {}
-      }
-      if (!useDoubaoStream && kIsWeb) {
+      if (kIsWeb) {
         try {
           final ok = await _speech.initialize();
           if (ok) {
@@ -262,7 +191,7 @@ $outputHint
                   setState(() => _speechTranscript = r.recognizedWords);
                 }
               },
-              localeId: _language == 'zh' ? 'zh_CN' : (_language == 'en' ? 'en_US' : null),
+              localeId: _speechLocaleFor(_language),
               listenOptions: stt.SpeechListenOptions(partialResults: true),
             );
           }
@@ -311,12 +240,6 @@ $outputHint
 
     _recordingTimer?.cancel();
     _amplitudeSubscription?.cancel();
-    _streamSubscription?.cancel();
-    _streamingAsr.sendEnd();
-    await _closeStreamingAsr?.call();
-    if (_streamSubscription != null) {
-      await _streamRecorder.stop();
-    }
     if (kIsWeb) {
       try {
         await _speech.stop();
@@ -340,9 +263,11 @@ $outputHint
       return;
     }
 
+    String? comment;
     try {
       final isRealUser = EnvConfig.isConfigured && await _hasCloudBaseUser();
       String transcript = _speechTranscript.trim();
+      String? logId;
 
       if (transcript.isEmpty) {
         try {
@@ -352,7 +277,7 @@ $outputHint
               audioUrl: audioUrl,
               audioPath: path,
             );
-            await _saveReadLog(audioUrl: audioUrl, transcript: transcript);
+            logId = await _saveReadLog(audioUrl: audioUrl, transcript: transcript);
           } else {
             transcript = await _transcribeWithoutLogin(path);
           }
@@ -360,7 +285,7 @@ $outputHint
           transcript = '';
           if (isRealUser) {
             final audioUrl = await _uploadToCloudBase(path);
-            await _saveReadLog(audioUrl: audioUrl, transcript: transcript);
+            logId = await _saveReadLog(audioUrl: audioUrl, transcript: transcript);
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('识别未完成，录音已保存。')),
@@ -370,30 +295,96 @@ $outputHint
         }
       } else if (isRealUser) {
         final audioUrl = await _uploadToCloudBase(path);
-        await _saveReadLog(audioUrl: audioUrl, transcript: transcript);
+        logId = await _saveReadLog(audioUrl: audioUrl, transcript: transcript);
       }
 
       if (!mounted) return;
       setState(() {
         _transcript = transcript;
-        _processing = false; // 立即结束「处理中」，不等待 TTS
+        _processing = false;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            isRealUser ? 'Hi-Doo！你讲得真棒！' : 'Hi-Doo！你讲得真棒！登录后可保存到阅读日记',
+
+      // 仅当【已登录】且【有复述文字】时：先显示「AI老师正在审阅」→ 再弹「老师批阅」对话框（文字+语音）
+      if (isRealUser && logId != null && transcript.trim().isNotEmpty) {
+        if (!mounted) return;
+        setState(() => _aiReviewing = true);
+
+        try {
+          final feedback = await AiFeedbackService.generate(
+            transcript: transcript,
+            summary: widget.summary,
+            questions: const [],
+            languageHint: _language,
+          );
+          comment = feedback['comment'] as String?;
+          unawaited(
+            ApiService.updateReadLogAiFeedback(logId, jsonEncode(feedback)).catchError((Object e) {
+              debugPrint('updateReadLogAiFeedback: $e');
+            }),
+          );
+        } catch (e) {
+          if (mounted) {
+            final msg = e is Exception
+                ? e.toString().replaceFirst('Exception: ', '')
+                : '请检查网络与 api/.env 中 ARK_* 或 OPENROUTER_API_KEY';
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('AI 点评失败：$msg'), duration: const Duration(seconds: 5)),
+            );
+          }
+        }
+
+        if (!mounted) return;
+        setState(() => _aiReviewing = false);
+
+        if (comment != null && comment.isNotEmpty) {
+          await _showFeedbackDialog(comment);
+        }
+      } else if (transcript.trim().isEmpty && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('未识别到复述内容，可重录或登录后获得 AI 老师批阅')),
+        );
+      } else if (!isRealUser && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('登录后录音可获得 AI 老师批阅')),
+        );
+      }
+
+      // 已有老师批阅弹窗并听过点评时，不再播两段结束语，减少等待；无批阅时保留原鼓励流程
+      if (!mounted) return;
+      if (comment == null || comment.isEmpty) {
+        try {
+          await _ttsService.speak('Hi-Doo！你讲得真棒！');
+        } catch (_) {}
+        if (!mounted) return;
+        try {
+          const closing = '今天的故事讲得真好，下次再来一起玩～';
+          await _ttsService.speak(closing);
+        } catch (_) {}
+      }
+      if (!mounted) return;
+      await Navigator.of(context).pushReplacement(
+        MaterialPageRoute<void>(
+          builder: (_) => RetellingCompleteScreen(
+            comment: comment,
+            bookTitle: widget.bookTitle,
           ),
         ),
       );
-      // TTS 后台播放，不阻塞按钮恢复
-      unawaited(
-        _ttsService.speak('Hi-Doo！你讲得真棒！').catchError((_) {}),
-      );
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('处理失败：$error')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('处理失败：$error')),
+      );
+      if (mounted) {
+        await Navigator.of(context).pushReplacement(
+          MaterialPageRoute<void>(
+            builder: (_) => RetellingCompleteScreen(
+              comment: comment,
+              bookTitle: widget.bookTitle,
+            ),
+          ),
+        );
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -407,6 +398,19 @@ $outputHint
     return _transcriptionService.transcribe(
       audioUrl: null,
       audioPath: pathOrBlobUrl,
+    );
+  }
+
+  Future<void> _showFeedbackDialog(String comment) async {
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _FeedbackDialog(
+        comment: comment,
+        languageHint: _language,
+        ttsService: _ttsService,
+      ),
     );
   }
 
@@ -439,7 +443,7 @@ $outputHint
     );
   }
 
-  Future<void> _saveReadLog({
+  Future<String> _saveReadLog({
     required String audioUrl,
     required String transcript,
   }) async {
@@ -448,7 +452,7 @@ $outputHint
       throw Exception('请先登录。');
     }
 
-    await ApiService.createReadLog(
+    return ApiService.createReadLog(
       bookId: widget.bookId,
       audioUrl: audioUrl,
       transcript: transcript,
@@ -460,32 +464,38 @@ $outputHint
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('AI 引导复述')),
-      body: SafeArea(
-        child: ResponsiveLayout.constrainToMaxWidth(
+      appBar: AppBar(title: const Text('自由复述')),
+      body: Stack(
+        children: [
+          SafeArea(
+            child: ResponsiveLayout.constrainToMaxWidth(
           context,
           SingleChildScrollView(
             padding: ResponsiveLayout.padding(context),
             child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('本次复述语言', style: Theme.of(context).textTheme.titleSmall),
+              Text('Hi-Doo想听你说...', style: Theme.of(context).textTheme.titleSmall),
               const SizedBox(height: 6),
               SegmentedButton<String>(
                 segments: const [
                   ButtonSegment(value: 'zh', label: Text('中文')),
                   ButtonSegment(value: 'en', label: Text('English')),
-                  ButtonSegment(value: 'mixed', label: Text('中英混合')),
                 ],
                 selected: {_language},
                 onSelectionChanged: (s) {
-                  final newLang = s.single;
-                  setState(() => _language = newLang);
-                  _loadGuideQuestions();
+                  setState(() {
+                    _language = s.single;
+                    _introPlayed = false;
+                  });
                 },
               ),
-              const SizedBox(height: 16),
-              _QuestionCard(loading: _loadingQuestions, questions: _questions),
+              const SizedBox(height: 12),
+              _IntroCard(
+                introText: _introPhraseFor(_language),
+                isPlaying: _isPlayingIntro,
+                onPlay: _playIntroPhrase,
+              ),
               const SizedBox(height: 16),
               _WaveformCard(
                 isRecording: _recording,
@@ -566,48 +576,191 @@ $outputHint
         ),
         ),
       ),
+          if (_aiReviewing)
+            Positioned.fill(
+              child: Container(
+                color: Colors.black54,
+                child: Center(
+                  child: Card(
+                    margin: const EdgeInsets.all(24),
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const SizedBox(
+                            width: 40,
+                            height: 40,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'AI老师正在审阅...',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
 
-class _QuestionCard extends StatelessWidget {
-  const _QuestionCard({required this.loading, required this.questions});
+class _FeedbackDialog extends StatefulWidget {
+  const _FeedbackDialog({
+    required this.comment,
+    required this.languageHint,
+    required this.ttsService,
+  });
 
-  final bool loading;
-  final List<String> questions;
+  final String comment;
+  /// 与复述分段一致：`en` / `zh`，用于 TTS 语言与 Web 降级朗读
+  final String languageHint;
+  final PageTtsService ttsService;
+
+  @override
+  State<_FeedbackDialog> createState() => _FeedbackDialogState();
+}
+
+class _FeedbackDialogState extends State<_FeedbackDialog> {
+  bool _playing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Web：无用户手势时 audio.play() 常被拦截，自动朗读会长时间「播放中」；请用户点按钮再播
+    if (!kIsWeb) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _autoPlay());
+    }
+  }
+
+  Future<void> _autoPlay() async {
+    if (!mounted || _playing) return;
+    setState(() => _playing = true);
+    try {
+      await widget.ttsService.speakWithDoubao(
+        widget.comment,
+        languageHint: widget.languageHint,
+      );
+    } catch (_) {}
+    finally {
+      if (mounted) setState(() => _playing = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Row(
+        children: [
+          Icon(Icons.school_rounded, color: Colors.amber),
+          SizedBox(width: 8),
+          Text('老师批阅'),
+        ],
+      ),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(widget.comment, style: Theme.of(context).textTheme.bodyLarge),
+            if (kIsWeb) ...[
+              const SizedBox(height: 10),
+              Text(
+                '在浏览器中请点击下方按钮收听语音。',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+              ),
+            ],
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: _playing
+                  ? null
+                  : () async {
+                      setState(() => _playing = true);
+                      try {
+                        await widget.ttsService.speakWithDoubao(
+                          widget.comment,
+                          languageHint: widget.languageHint,
+                        );
+                      } catch (_) {}
+                      finally {
+                        if (mounted) setState(() => _playing = false);
+                      }
+                    },
+              icon: _playing
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.volume_up_rounded),
+              label: Text(_playing ? '播放中...' : '听老师点评'),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('知道了'),
+        ),
+      ],
+    );
+  }
+}
+
+class _IntroCard extends StatelessWidget {
+  const _IntroCard({
+    required this.introText,
+    required this.isPlaying,
+    required this.onPlay,
+  });
+
+  final String introText;
+  final bool isPlaying;
+  final VoidCallback onPlay;
+
+  @override
+  Widget build(BuildContext context) {
+    final orange = Colors.orange;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(14),
-        child: loading
-            ? const Row(
-                children: [
-                  SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              introText,
+              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    fontSize: 18,
+                    height: 1.5,
                   ),
-                  SizedBox(width: 10),
-                  Text('AI 正在生成引导问题...'),
-                ],
-              )
-            : Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'AI 引导问题',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  for (var i = 0; i < questions.length; i++)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 6),
-                      child: Text('${i + 1}. ${questions[i]}'),
-                    ),
-                ],
+            ),
+            const SizedBox(height: 10),
+            FilledButton.tonalIcon(
+              onPressed: isPlaying ? null : onPlay,
+              style: FilledButton.styleFrom(
+                backgroundColor: orange.shade50,
+                foregroundColor: orange.shade800,
               ),
+              icon: isPlaying
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.volume_up_rounded, size: 20),
+              label: Text(isPlaying ? '播放中...' : '播放引导语'),
+            ),
+          ],
+        ),
       ),
     );
   }

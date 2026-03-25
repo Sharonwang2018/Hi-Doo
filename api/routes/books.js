@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { query } from '../db.js';
 import { v4 as uuidv4 } from 'uuid';
-import { authMiddleware } from '../middleware/auth.js';
+import { optionalAuth } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -32,7 +32,8 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-router.post('/', authMiddleware, async (req, res, next) => {
+// 书目元数据（ISBN/书名）为全局表，与具体用户无关；勿强制 JWT，避免访客/过期 token 导致「确认后无法保存」。
+router.post('/', optionalAuth, async (req, res, next) => {
   try {
     const { isbn, title, author, cover_url, summary } = req.body || {};
     if (!isbn || !title || !author) {

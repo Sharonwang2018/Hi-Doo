@@ -1,14 +1,16 @@
 import 'dart:async';
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:echo_reading/services/page_ocr_service.dart';
 import 'package:echo_reading/services/page_tts_service.dart';
 import 'package:echo_reading/widgets/responsive_layout.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 /// 拍照读页：孩子翻到哪页拍哪页，AI 识别后朗读，不存储全书，无侵权风险
-/// 豆包 TTS 失败时自动降级为设备朗读，确保一定能读出
+/// 后端 TTS 失败时自动降级为设备朗读，确保一定能读出
+/// Web：浏览器禁止无用户手势自动播放音频，故识别后不自动朗读，需点击「收听本页」
 class PhotoReadPageScreen extends StatefulWidget {
   const PhotoReadPageScreen({super.key});
 
@@ -21,12 +23,14 @@ class _PhotoReadPageScreenState extends State<PhotoReadPageScreen> {
   final PageTtsService _ttsService = PageTtsService();
   final ImagePicker _picker = ImagePicker();
 
-  File? _photoFile;
+  Uint8List? _photoBytes;
   String? _extractedText;
   bool _isProcessing = false;
   bool _isPlaying = false;
   String _statusText = '';
   String? _lastError;
+  /// Web 上曾成功播过一次后，按钮文案改为「再次播放」
+  bool _hasPlayedOnce = false;
 
   @override
   void dispose() {
@@ -38,27 +42,56 @@ class _PhotoReadPageScreenState extends State<PhotoReadPageScreen> {
     if (mounted) setState(() => _statusText = text);
   }
 
+  /// 与 `_playAgain` 一致：无论成功失败，[finally] 结束「朗读中」避免 Web TTS 久不 complete 时一直转圈
+  Future<void> _speakExtractedAfterCapture(String t) async {
+    try {
+      await _ttsService.speak(t);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('朗读失败：$e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isPlaying = false;
+          _statusText = '';
+          _hasPlayedOnce = true;
+        });
+      }
+    }
+  }
+
   Future<void> _takePhoto() async {
     if (_isProcessing) return;
+
+    if (_isPlaying) {
+      await _ttsService.stop();
+      if (mounted) setState(() => _isPlaying = false);
+    }
 
     try {
       final XFile? photo = await _picker.pickImage(
         source: ImageSource.camera,
-        imageQuality: 85,
-        maxWidth: 1920,
+        // 缩小图片，减少 base64 体积，降低 OpenRouter 触发 request entity too large 的概率
+        imageQuality: 75,
+        maxWidth: 1280,
       );
 
       if (photo == null || !mounted) return;
 
+      _setStatus('识别中...');
+      final bytes = await photo.readAsBytes();
+      if (!mounted) return;
+
       setState(() {
-        _photoFile = File(photo.path);
+        _photoBytes = Uint8List.fromList(bytes);
         _extractedText = null;
         _lastError = null;
         _isProcessing = true;
+        _hasPlayedOnce = false;
       });
-
-      _setStatus('识别中...');
-      final bytes = await File(photo.path).readAsBytes();
 
       String text;
       try {
@@ -67,11 +100,12 @@ class _PhotoReadPageScreenState extends State<PhotoReadPageScreen> {
         if (!mounted) return;
         setState(() {
           _lastError = '识别失败，请重拍或确保光线充足';
+          _statusText = '';
           _isProcessing = false;
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('识别失败：$e'),
+            content: const Text('识别失败，请重拍或检查网络'),
             action: SnackBarAction(
               label: '重试',
               onPressed: _takePhoto,
@@ -86,6 +120,7 @@ class _PhotoReadPageScreenState extends State<PhotoReadPageScreen> {
         if (!mounted) return;
         setState(() {
           _lastError = '未识别到文字，请重拍或调整角度';
+          _statusText = '';
           _isProcessing = false;
         });
         ScaffoldMessenger.of(context).showSnackBar(
@@ -100,29 +135,25 @@ class _PhotoReadPageScreenState extends State<PhotoReadPageScreen> {
       if (!mounted) return;
       setState(() {
         _extractedText = t;
-        _statusText = '朗读中...';
-        _isPlaying = true;
-      });
-
-      try {
-        await _ttsService.speak(t);
-      } catch (e) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('朗读失败：$e')),
-        );
-      }
-
-      if (!mounted) return;
-      setState(() {
-        _isPlaying = false;
         _isProcessing = false;
-        _statusText = '';
+        if (kIsWeb) {
+          // 浏览器会拦截无用户手势的 audio.play()，自动朗读会失败或长时间走降级；改为点击后再播
+          _statusText = '识别完成，请点击「收听本页」';
+          _isPlaying = false;
+        } else {
+          _statusText = '朗读中...';
+          _isPlaying = true;
+        }
       });
+
+      if (!kIsWeb) {
+        unawaited(_speakExtractedAfterCapture(t));
+      }
     } catch (error) {
       if (!mounted) return;
       setState(() {
         _lastError = '出错了，请重试';
+        _statusText = '';
         _isProcessing = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
@@ -146,17 +177,20 @@ class _PhotoReadPageScreenState extends State<PhotoReadPageScreen> {
     try {
       await _ttsService.speak(_extractedText!);
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('播放失败：$e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('播放失败：$e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isPlaying = false;
+          _statusText = '';
+          _hasPlayedOnce = true;
+        });
+      }
     }
-
-    if (!mounted) return;
-    setState(() {
-      _isPlaying = false;
-      _statusText = '';
-    });
   }
 
   @override
@@ -197,7 +231,7 @@ class _PhotoReadPageScreenState extends State<PhotoReadPageScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        '不存储全书，仅识别当前页并朗读。本地 PaddleOCR 识别，置信度不足时自动用 Azure 补偿；朗读失败时用设备 TTS。',
+                        '不存储全书，仅识别当前页并朗读。',
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                     ],
@@ -205,11 +239,11 @@ class _PhotoReadPageScreenState extends State<PhotoReadPageScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-              if (_photoFile != null)
+              if (_photoBytes != null)
                 ClipRRect(
                   borderRadius: BorderRadius.circular(12),
-                  child: Image.file(
-                    _photoFile!,
+                  child: Image.memory(
+                    _photoBytes!,
                     fit: BoxFit.contain,
                     height: ResponsiveLayout.isTablet(context) ? 320 : 240,
                   ),
@@ -246,16 +280,23 @@ class _PhotoReadPageScreenState extends State<PhotoReadPageScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Theme.of(context).colorScheme.primary,
+                    if (_isProcessing || _isPlaying) ...[
+                      SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
+                    Flexible(
+                      child: Text(
+                        _statusText,
+                        textAlign: TextAlign.center,
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    Text(_statusText),
                   ],
                 ),
               ],
@@ -281,7 +322,9 @@ class _PhotoReadPageScreenState extends State<PhotoReadPageScreen> {
                       )
                     : const Icon(Icons.camera_alt_rounded),
                 label: Text(
-                  _isProcessing ? '识别并朗读中...' : '拍摄当前页',
+                  _isProcessing
+                      ? (kIsWeb ? '识别中...' : '识别并朗读中...')
+                      : '拍摄当前页',
                 ),
               ),
               if (_extractedText != null) ...[
@@ -307,7 +350,13 @@ class _PhotoReadPageScreenState extends State<PhotoReadPageScreen> {
                                       ? Icons.volume_up_rounded
                                       : Icons.play_circle_outline_rounded,
                                 ),
-                                label: Text(_isPlaying ? '播放中' : '再次播放'),
+                                label: Text(
+                                  _isPlaying
+                                      ? '播放中'
+                                      : (kIsWeb && !_hasPlayedOnce
+                                          ? '收听本页'
+                                          : '再次播放'),
+                                ),
                               ),
                           ],
                         ),

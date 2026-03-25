@@ -1,4 +1,5 @@
 import 'package:echo_reading/models/book.dart';
+import 'package:echo_reading/screens/retelling_complete_screen.dart';
 import 'package:echo_reading/services/read_logs_service.dart';
 import 'package:echo_reading/widgets/responsive_layout.dart';
 import 'package:flutter/material.dart';
@@ -38,7 +39,15 @@ class _SharedReadingScreenState extends State<SharedReadingScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('亲子共读已记录')),
       );
-      Navigator.of(context).pop(true);
+      // 与复述模式一致：进入定制结束页（保存网页 / 再读一本）
+      await Navigator.of(context).pushReplacement(
+        MaterialPageRoute<void>(
+          builder: (_) => RetellingCompleteScreen(
+            comment: null,
+            bookTitle: widget.book.title,
+          ),
+        ),
+      );
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -132,7 +141,6 @@ class _SharedReadingScreenState extends State<SharedReadingScreen> {
                 segments: const [
                   ButtonSegment(value: 'zh', label: Text('中文')),
                   ButtonSegment(value: 'en', label: Text('English')),
-                  ButtonSegment(value: 'mixed', label: Text('中英混合')),
                 ],
                 selected: {_language},
                 onSelectionChanged: (Set<String> selected) {

@@ -13,9 +13,9 @@
 |------|-----------|--------|------|
 | Android | ✅ | OpenCV | Azure |
 | iOS | ✅ | OpenCV | Azure |
-| Web | ❌ | image 包二值化 | Azure 或豆包 |
+| Web | ❌ | image 包二值化 | Azure 或后端 OpenRouter 视觉 |
 
-**注意**：PaddleOCR 仅支持 Android/iOS，Web 需配置 Azure 或豆包。
+**注意**：PaddleOCR 仅支持 Android/iOS。Web 需配置 Azure 或后端 `OPENROUTER_API_KEY`（见 docs/DOUBAO_SETUP.md）。
 
 ## 配置项
 
@@ -30,12 +30,9 @@
 --dart-define=AZURE_VISION_KEY=你的Key
 ```
 
-### 2. 豆包（可选，Web 或 Azure 不可用时的兜底）
+### 2. 后端 OpenRouter 视觉（推荐，Web 或 Azure 不可用时）
 
-```bash
---dart-define=DOUBAO_API_KEY=你的豆包API_Key \
---dart-define=DOUBAO_ARK_ENDPOINT_ID=视觉模型Endpoint_ID
-```
+配置后端 `OPENROUTER_API_KEY` 与可选 `OPENROUTER_VISION_MODEL`，见 docs/DOUBAO_SETUP.md。客户端在配置了 API_BASE_URL 时会自动走 `/api/vision`。
 
 ### 3. PaddleOCR 模型
 
@@ -46,9 +43,9 @@ paddle_ocr 插件自带模型，首次运行会自动下载。若需 PP-OCRv4，
 1. 拍摄照片 → 预处理（透视矫正 + 二值化）
 2. PaddleOCR 识别 → 按 Y 坐标排序，保持段落
 3. 若平均置信度 < 80% 且配置了 Azure → 调用 Azure Read
-4. 若 Web 或 PaddleOCR 失败 → Azure 或豆包
+4. 若 Web 或 PaddleOCR 失败 → Azure 或后端 OpenRouter 视觉
 
 ## 测试建议
 
 - Android/iOS：在真机或模拟器运行 `flutter run`
-- Web：需配置 Azure 或豆包，否则 OCR 会失败
+- Web：需配置 Azure 或后端 OPENROUTER_API_KEY，否则 OCR 会失败

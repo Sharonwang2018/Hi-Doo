@@ -2,6 +2,11 @@
 run_app.sh
 **/tcb_custom_login.json
 api/certs/*.pem
+api/.env
+api/uploads/
+
+# Root tooling deps (e.g. favicon generator); use package-lock + npm ci
+/node_modules/
 
 # Miscellaneous
 *.class

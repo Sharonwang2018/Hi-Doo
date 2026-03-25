@@ -32,6 +32,12 @@ class ApiAuthService {
     await prefs.remove(_tokenKey);
   }
 
+  /// 本地 JWT 仍能解析，但服务端已不认（换 JWT_SECRET、过期等）时调用：清缓存并重新领访客 token。
+  static Future<void> recoverSessionAfterUnauthorized() async {
+    await signOut();
+    await signInAsGuest();
+  }
+
   /// 解析 JWT payload 获取 userId、username
   static Map<String, dynamic>? _decodePayload(String token) {
     try {

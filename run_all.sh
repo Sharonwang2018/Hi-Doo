@@ -2,11 +2,7 @@
 # Hi-Doo 绘读：一键启动（UI + API 同源，HTTPS）
 # 1. 确保数据库已建: createdb echo_reading && psql -d echo_reading -f sql/schema.sql
 # 2. 首次 HTTPS 需生成证书: ./scripts/gen_certs.sh
-# 3. 配置豆包参数（必填）: 见 docs/DOUBAO_SETUP.md
-#    export DOUBAO_API_KEY=你的API_Key
-#    export DOUBAO_ARK_MODEL=doubao-seed-2-0-pro-260215
-#    export DOUBAO_ASR_APPID=xxx            # 录音转写
-#    export DOUBAO_ASR_ACCESS_KEY=xxx   # 录音转写 + 边说边识别共用
+# 3. 配置 AI: 见 docs/DOUBAO_SETUP.md（豆包 ARK_* 或 OpenRouter + 可选 OpenAI）
 # 4. ./run_all.sh
 # 手机测试无证书警告: HTTP=1 ./run_all.sh
 
@@ -18,20 +14,18 @@ USE_HTTPS=false
 SCHEME=http; [ "$USE_HTTPS" = true ] && SCHEME=https
 API_BASE="${SCHEME}://${LOCAL_IP}:3000"
 
-if [ -z "${DOUBAO_API_KEY:-}" ]; then
-  echo "⚠️  请先配置豆包参数，详见 docs/DOUBAO_SETUP.md"
-  echo "   export DOUBAO_API_KEY=你的Key"
-  echo "   export DOUBAO_ARK_MODEL=doubao-seed-2-0-pro-260215"
+if { [ -z "${ARK_API_KEY:-}" ] || [ -z "${ARK_ENDPOINT_ID:-}" ]; } && [ -z "${OPENROUTER_API_KEY:-}" ]; then
+  echo "⚠️  请配置 LLM：火山方舟（豆包）ARK_API_KEY + ARK_ENDPOINT_ID，或 OpenRouter，详见 docs/DOUBAO_SETUP.md"
+  echo ""
+fi
+if [ -z "${OPENAI_API_KEY:-}" ]; then
+  echo "⚠️  未配置 OPENAI_API_KEY：TTS/转写将受限（见 docs/DOUBAO_SETUP.md）"
   echo ""
 fi
 
 echo "Building Flutter web (API_BASE=$API_BASE)..."
 flutter build web \
-  --dart-define=API_BASE_URL="$API_BASE" \
-  --dart-define=DOUBAO_API_KEY="${DOUBAO_API_KEY:-02c2b436-a3fc-43a2-8696-f41955eb2fba}" \
-  --dart-define=DOUBAO_ARK_MODEL="${DOUBAO_ARK_MODEL:-doubao-seed-2-0-pro-260215}" \
-  --dart-define=DOUBAO_ASR_APPID="${DOUBAO_ASR_APPID:-}" \
-  --dart-define=DOUBAO_ASR_ACCESS_KEY="${DOUBAO_ASR_ACCESS_KEY:-}"
+  --dart-define=API_BASE_URL="$API_BASE"
 
 echo ""
 if [ "$USE_HTTPS" = true ]; then

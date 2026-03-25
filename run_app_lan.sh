@@ -7,12 +7,11 @@ cd "$(dirname "$0")"
 echo "📱 构建中，完成后手机访问: http://10.0.0.138:8082"
 echo ""
 
-# release 构建（豆包参数需 export，见 docs/DOUBAO_SETUP.md）
+# release 构建（AI 配置见 docs/DOUBAO_SETUP.md）
 flutter build web \
   --dart-define=SUPABASE_URL="${SUPABASE_URL:-}" \
   --dart-define=SUPABASE_ANON_KEY="${SUPABASE_ANON_KEY:-}" \
-  --dart-define=DOUBAO_API_KEY="${DOUBAO_API_KEY:-}" \
-  --dart-define=DOUBAO_ARK_MODEL="${DOUBAO_ARK_MODEL:-}"
+  --dart-define=API_BASE_URL="${API_BASE_URL:-http://10.0.0.138:3000}"
 
 if [ $? -ne 0 ]; then
   echo "构建失败"

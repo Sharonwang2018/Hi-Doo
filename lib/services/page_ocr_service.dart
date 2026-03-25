@@ -6,15 +6,16 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:path_provider/path_provider.dart';
 import 'package:paddle_ocr/paddle_ocr.dart';
 
+import 'package:echo_reading/env_config.dart';
+import 'package:echo_reading/services/api_service.dart';
+
 import 'azure_vision_service.dart';
-import 'doubao_service.dart';
 import 'image_preprocess_service.dart';
 
 /// 绘本拍照 OCR 服务
-/// 流程：预处理 → PaddleOCR 本地识别 → 置信度 < 80% 时调用 Azure Read 补偿
+/// 流程：预处理 → PaddleOCR 本地识别 → 置信度 < 80% 时调用 Azure 或后端 OpenRouter 视觉
 class PageOcrService {
   final AzureVisionService _azure = AzureVisionService();
-  final DoubaoService _doubao = DoubaoService();
 
   /// 从图片字节识别文字，保持段落结构
   Future<String> extractTextFromImage(List<int> imageBytes) async {
@@ -51,19 +52,20 @@ class PageOcrService {
       }
     }
 
-    // 3. Web 或 PaddleOCR 不可用：Azure 或豆包兜底
+    // 3. Web 或 PaddleOCR 不可用：Azure 或后端 OpenRouter 视觉
+    // 视觉模型用原图（仅缩尺寸），二值化会破坏绘本气泡、对话框中的文字
+    final forVision = await prepareForVisionApi(bytes);
     if (_azure.isConfigured) {
-      return _azure.extractTextFromImage(preprocessed);
+      return _azure.extractTextFromImage(forVision);
     }
-    try {
-      final base64 = base64Encode(preprocessed);
-      return _doubao.extractTextFromImage(base64);
-    } catch (_) {
-      throw Exception(
-        'OCR 不可用：移动端请确保 PaddleOCR 正常；'
-        '或配置 AZURE_VISION_ENDPOINT/KEY 或 DOUBAO_API_KEY',
-      );
+    if (EnvConfig.isConfigured) {
+      final base64 = base64Encode(forVision);
+      return ApiService.visionFromImage(base64);
     }
+    throw Exception(
+      'OCR 不可用：移动端请确保 PaddleOCR 正常；'
+      '或配置后端 ARK_* / OPENROUTER_API_KEY 或 AZURE_VISION（见 docs）',
+    );
   }
 
   /// 运行 PaddleOCR，返回 (文本, 平均置信度)，保持段落结构
