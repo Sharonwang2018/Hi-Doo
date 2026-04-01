@@ -1,3 +1,4 @@
+import 'package:echo_reading/models/read_log.dart';
 import 'package:echo_reading/models/read_log_with_book.dart';
 import 'package:echo_reading/screens/reading_journal_detail_screen.dart';
 import 'package:echo_reading/services/api_service.dart';
@@ -48,6 +49,12 @@ class _MyReadLogsScreenState extends State<MyReadLogsScreen> {
     final m = dt.month.toString().padLeft(2, '0');
     final d = dt.day.toString().padLeft(2, '0');
     return '$y-$m-$d';
+  }
+
+  String _sessionLabel(ReadLog log) {
+    if (log.isSharedReading) return '亲子共读';
+    if (log.isPhotoReadPage) return '拍照读页';
+    return '复述';
   }
 
   @override
@@ -174,7 +181,7 @@ class _MyReadLogsScreenState extends State<MyReadLogsScreen> {
                                               ),
                                               const SizedBox(height: 6),
                                               Text(
-                                                '${_formatDate(item.readLog.createdAt)} · ${item.readLog.isSharedReading ? '亲子共读' : '复述'}',
+                                                '${_formatDate(item.readLog.createdAt)} · ${_sessionLabel(item.readLog)}',
                                                 style: Theme.of(context)
                                                     .textTheme
                                                     .bodySmall,

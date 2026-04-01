@@ -112,9 +112,10 @@ server.listen(PORT, '0.0.0.0', () => {
   attachWsToServer(server);
   const chat = resolveChatProvider();
   const vision = resolveVisionProvider();
-  console.log(useHttps
-    ? `Hi-Doo HTTPS at https://10.0.0.138:${PORT}`
-    : `Hi-Doo API at http://10.0.0.138:${PORT}`);
+  const publicBase = process.env.PUBLIC_BASE_URL?.trim();
+  const displayUrl = publicBase
+    || (useHttps ? `https://10.0.0.138:${PORT}` : `http://10.0.0.138:${PORT}`);
+  console.log(`Hi-Doo at ${displayUrl}`);
   console.log(`LLM 对话/点评: ${chat ? `${chat.provider} (${chat.model})` : '未配置'}`);
   console.log(`LLM 拍照读页: ${vision ? `${vision.provider} (${vision.model})` : '未配置'}`);
   console.log(

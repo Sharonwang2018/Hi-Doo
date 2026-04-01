@@ -201,7 +201,8 @@ class _PhoneLayout extends StatelessWidget {
         _MenuCard(
           icon: Icons.camera_alt_rounded,
           title: 'AI 读书（拍照读页）',
-          subtitle: '翻到哪页拍哪页，AI 识别后读给你听，不存全书无侵权',
+          subtitle:
+              '随拍随读本页，不存全书。读完一整本后，请用「扫码录入」选书并完成复述，保存阅读记录。',
           onTap: photoTap,
         ),
         const Spacer(flex: 2),
@@ -240,7 +241,8 @@ class _TabletLayout extends StatelessWidget {
                 child: _MenuCard(
                   icon: Icons.camera_alt_rounded,
                   title: 'AI 读书（拍照读页）',
-                  subtitle: '翻到哪页拍哪页，AI 识别后读给你听，不存全书无侵权',
+                  subtitle:
+                      '随拍随读本页，不存全书。读完一整本后，请用「扫码录入」选书并完成复述，保存阅读记录。',
                   onTap: photoTap,
                 ),
               ),
@@ -309,7 +311,7 @@ class _MenuCard extends StatelessWidget {
                       subtitle,
                       style: Theme.of(context).textTheme.bodyMedium,
                       textAlign: TextAlign.center,
-                      maxLines: 2,
+                      maxLines: 4,
                     ),
                     SizedBox(height: padding * 0.5),
                     Icon(Icons.chevron_right_rounded, size: iconSz),

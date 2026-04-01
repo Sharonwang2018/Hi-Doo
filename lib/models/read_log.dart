@@ -23,6 +23,8 @@ class ReadLog {
 
   bool get isSharedReading => sessionType == 'shared_reading';
 
+  bool get isPhotoReadPage => sessionType == 'photo_read_page';
+
   factory ReadLog.fromJson(Map<String, dynamic> json) {
     final id = json['id'] as String? ?? json['_id'] as String? ?? '';
     return ReadLog(

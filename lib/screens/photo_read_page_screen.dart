@@ -245,6 +245,13 @@ class _PhotoReadPageScreenState extends State<PhotoReadPageScreen> {
                         '不存储全书，仅识别当前页并朗读。',
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '完整读完一本书后，请返回首页用「扫码录入」选书并完成复述，以保存阅读记录。',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Theme.of(context).colorScheme.onSurfaceVariant,
+                            ),
+                      ),
                     ],
                   ),
                 ),
