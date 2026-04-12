@@ -14,6 +14,12 @@ enum EmailRegisterResult {
   confirmEmailPending,
 }
 
+/// 单按钮「Continue」：先登录，失败再尝试注册时的结果。
+enum EmailContinueResult {
+  signedIn,
+  confirmEmailPending,
+}
+
 /// Supabase Auth：注册/登录；云存储需邮箱或 Google（不使用匿名会话）。
 class ApiAuthService {
   ApiAuthService._();
@@ -132,6 +138,58 @@ class ApiAuthService {
       throw AppAuthException('Sign in failed');
     }
     return res.session!.accessToken;
+  }
+
+  /// 先 [signInWithPassword]；失败时（常见为无此账号或错密）再 [signUp]。
+  /// 若注册报「已存在」则视为账号存在、密码错误 → [AppAuthException] `Wrong email or password.`
+  static Future<EmailContinueResult> continueWithEmail({
+    required String email,
+    required String password,
+  }) async {
+    if (!EnvConfig.hasSupabase) {
+      throw AppAuthException('Supabase is not configured (SUPABASE_URL / SUPABASE_ANON_KEY).');
+    }
+
+    AuthResponse? signInRes;
+    try {
+      signInRes = await _client.auth.signInWithPassword(email: email, password: password);
+    } on AuthException catch (e) {
+      final m = e.message.toLowerCase();
+      if (m.contains('email not confirmed') || m.contains('not confirmed')) {
+        throw AppAuthException(
+          'Check your inbox and confirm your email, then tap Continue again.',
+        );
+      }
+      return _registerAfterSignInFailed(email: email, password: password);
+    }
+
+    if (signInRes.session != null) {
+      return EmailContinueResult.signedIn;
+    }
+
+    return _registerAfterSignInFailed(email: email, password: password);
+  }
+
+  static Future<EmailContinueResult> _registerAfterSignInFailed({
+    required String email,
+    required String password,
+  }) async {
+    try {
+      final reg = await _client.auth.signUp(email: email, password: password);
+      if (reg.session != null) return EmailContinueResult.signedIn;
+      if (reg.user != null) return EmailContinueResult.confirmEmailPending;
+      throw AppAuthException(
+        'Could not create an account. If you already use this email, check your password.',
+      );
+    } on AuthException catch (e) {
+      final m = e.message.toLowerCase();
+      if (m.contains('already registered') ||
+          m.contains('already been registered') ||
+          m.contains('user already registered')) {
+        throw AppAuthException('Wrong email or password.');
+      }
+      throw AppAuthException(e.message);
+    }
   }
 }
 

@@ -5,7 +5,7 @@ import 'package:echo_reading/widgets/google_sign_in_button.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-/// 使用 Supabase Auth：邮箱 + 密码；可选匿名浏览
+/// 使用 Supabase Auth：Google 或邮箱+密码单流「Continue」；可选匿名浏览
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -13,23 +13,14 @@ class LoginScreen extends StatefulWidget {
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen>
-    with SingleTickerProviderStateMixin {
-  late TabController _tabController;
+class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _loading = false;
   bool _obscurePassword = true;
 
   @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-  }
-
-  @override
   void dispose() {
-    _tabController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
@@ -68,7 +59,7 @@ class _LoginScreenState extends State<LoginScreen>
     }
   }
 
-  Future<void> _submit() async {
+  Future<void> _continueWithEmail() async {
     if (!_emailOk(_email)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Enter a valid email address.')),
@@ -85,27 +76,23 @@ class _LoginScreenState extends State<LoginScreen>
     setState(() => _loading = true);
 
     try {
-      final isLogin = _tabController.index == 0;
-      if (isLogin) {
-        await ApiAuthService.login(email: _email, password: _password);
-      } else {
-        final reg = await ApiAuthService.register(email: _email, password: _password);
-        if (!mounted) return;
-        if (reg == EmailRegisterResult.confirmEmailPending) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Check your email and tap the confirmation link, then use Sign in. '
-                'For development: Supabase → Authentication → Providers → Email → turn off "Confirm email".',
-              ),
-              duration: Duration(seconds: 10),
-            ),
-          );
-          _tabController.animateTo(0);
-          return;
-        }
-      }
+      final result = await ApiAuthService.continueWithEmail(
+        email: _email,
+        password: _password,
+      );
       if (!mounted) return;
+      if (result == EmailContinueResult.confirmEmailPending) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Check your email and tap the confirmation link, then tap Continue again. '
+              'For development: Supabase → Authentication → Email → turn off "Confirm email".',
+            ),
+            duration: Duration(seconds: 10),
+          ),
+        );
+        return;
+      }
       Navigator.of(context).pushReplacement(
         MaterialPageRoute<void>(builder: (_) => const HomeScreen()),
       );
@@ -128,14 +115,7 @@ class _LoginScreenState extends State<LoginScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Sign in / Sign up'),
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: const [
-            Tab(text: 'Sign in'),
-            Tab(text: 'Sign up'),
-          ],
-        ),
+        title: const Text('Welcome'),
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -183,7 +163,7 @@ class _LoginScreenState extends State<LoginScreen>
               ],
               const SizedBox(height: 24),
               Text(
-                'Sign in with email to save your reading journey',
+                'Sign in with Google or enter your email to save your reading journey',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: Colors.black54,
                     ),
@@ -245,7 +225,7 @@ class _LoginScreenState extends State<LoginScreen>
               ),
               const SizedBox(height: 24),
               FilledButton(
-                onPressed: _loading ? null : _submit,
+                onPressed: _loading ? null : _continueWithEmail,
                 style: GoogleSignInButton.authFilledButtonStyle(context),
                 child: _loading
                     ? const SizedBox(
@@ -253,7 +233,7 @@ class _LoginScreenState extends State<LoginScreen>
                         width: 24,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : Text(_tabController.index == 0 ? 'Sign in' : 'Create account'),
+                    : const Text('Continue'),
               ),
               const SizedBox(height: 24),
               TextButton(
@@ -265,7 +245,7 @@ class _LoginScreenState extends State<LoginScreen>
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
                               content: Text(
-                                'Configure API + Supabase first, or use Sign in.',
+                                'Configure API + Supabase first, or use Continue.',
                               ),
                             ),
                           );
