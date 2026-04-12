@@ -470,8 +470,13 @@ class _PosterShareDialogState extends State<_PosterShareDialog> {
   bool _exportedCleanFallback = false;
   bool _isGenerating = true;
   bool _downloadBusy = false;
+  /// iOS Web: fullscreen screenshot preview — hide dialog Copy/Close; no SnackBars.
+  bool _iosScreenshotChromeHidden = false;
 
   static const double _posterW = 340;
+
+  bool get _iosWebScreenshotFlow =>
+      kIsWeb && isIosWebPosterScreenshotTarget();
   static const double _posterH = 620;
 
   @override
@@ -562,6 +567,19 @@ class _PosterShareDialogState extends State<_PosterShareDialog> {
   Future<void> _downloadPosterToDevice() async {
     final bytes = _posterBytes;
     if (bytes == null || _downloadBusy) return;
+
+    if (_iosWebScreenshotFlow) {
+      ScaffoldMessenger.of(context).clearSnackBars();
+      setState(() => _iosScreenshotChromeHidden = true);
+      openIosWebPosterScreenshotPreview(
+        bytes,
+        onClosed: () {
+          if (mounted) setState(() => _iosScreenshotChromeHidden = false);
+        },
+      );
+      return;
+    }
+
     setState(() => _downloadBusy = true);
     try {
       final hint = await downloadPosterPng(
@@ -569,15 +587,21 @@ class _PosterShareDialogState extends State<_PosterShareDialog> {
         filename: 'hidoo_reading_achievement.png',
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            hint ??
-                'Download started — check your downloads folder.',
+      if (hint == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Download started — check your downloads folder.'),
+            duration: Duration(seconds: 3),
           ),
-          duration: Duration(seconds: hint != null ? 6 : 3),
-        ),
-      );
+        );
+      } else if (hint.isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(hint),
+            duration: const Duration(seconds: 6),
+          ),
+        );
+      }
     } catch (e, st) {
       debugPrint('[HiDoo poster download] error: $e');
       debugPrint('[HiDoo poster download] stack: $st');
@@ -799,7 +823,7 @@ class _PosterShareDialogState extends State<_PosterShareDialog> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               if (kIsWeb && !_isGenerating) ...[
-                if (_exportedCleanFallback) ...[
+                if (_exportedCleanFallback && !_iosScreenshotChromeHidden) ...[
                   Text(
                     'Simplified poster (book cover omitted) so your browser can export the image.',
                     style: theme.textTheme.bodySmall?.copyWith(
@@ -821,8 +845,18 @@ class _PosterShareDialogState extends State<_PosterShareDialog> {
                           height: 22,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Icon(Icons.save_alt_rounded),
-                  label: Text(_downloadBusy ? 'Preparing…' : 'Save poster image'),
+                      : Icon(
+                          _iosWebScreenshotFlow
+                              ? Icons.photo_camera_outlined
+                              : Icons.save_alt_rounded,
+                        ),
+                  label: Text(
+                    _downloadBusy
+                        ? 'Preparing…'
+                        : _iosWebScreenshotFlow
+                            ? 'Prepare for Screenshot'
+                            : 'Save poster image',
+                  ),
                   style: FilledButton.styleFrom(
                     minimumSize: const Size.fromHeight(52),
                     textStyle: GoogleFonts.montserrat(
@@ -836,42 +870,68 @@ class _PosterShareDialogState extends State<_PosterShareDialog> {
                   onPressed: (_posterBytes == null || _downloadBusy)
                       ? null
                       : () {
+                          if (_iosWebScreenshotFlow) {
+                            ScaffoldMessenger.of(context).clearSnackBars();
+                            setState(() => _iosScreenshotChromeHidden = true);
+                            openIosWebPosterScreenshotPreview(
+                              _posterBytes!,
+                              onClosed: () {
+                                if (mounted) {
+                                  setState(() => _iosScreenshotChromeHidden = false);
+                                }
+                              },
+                            );
+                            return;
+                          }
                           final msg = openPosterImageInNewTab(_posterBytes!);
                           if (!context.mounted) return;
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                msg ??
-                                    'Image opened in a new tab — use your browser’s Save or Share there.',
+                          if (msg != null && msg.isNotEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  msg,
+                                ),
+                                duration: const Duration(seconds: 6),
                               ),
-                              duration: const Duration(seconds: 6),
-                            ),
-                          );
+                            );
+                          }
                         },
-                  icon: const Icon(Icons.open_in_new_rounded, size: 20),
+                  icon: Icon(
+                    _iosWebScreenshotFlow
+                        ? Icons.fullscreen_rounded
+                        : Icons.open_in_new_rounded,
+                    size: 20,
+                  ),
                   label: Text(
-                    'Open in new tab',
+                    _iosWebScreenshotFlow
+                        ? 'Prepare for Screenshot'
+                        : 'Open in new tab',
                     style: GoogleFonts.montserrat(fontWeight: FontWeight.w700),
                   ),
                   style: OutlinedButton.styleFrom(
                     minimumSize: const Size.fromHeight(48),
                   ),
                 ),
-                const SizedBox(height: 10),
-                Text(
-                  _posterBytes == null
-                      ? 'PNG export failed on this browser. Screenshot the preview above or use Copy link.'
-                      : 'Save downloads the PNG. On iPhone Safari, use Open in new tab, then save the picture.',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                    fontWeight: FontWeight.w600,
-                    height: 1.35,
+                if (!_iosScreenshotChromeHidden) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    _posterBytes == null
+                        ? 'PNG export failed on this browser. Screenshot the preview above or use Copy link.'
+                        : _iosWebScreenshotFlow
+                            ? 'Use either button for a clean fullscreen poster, then take a screenshot (side + volume up on Face ID iPhones).'
+                            : 'Save downloads the PNG. Use Open in new tab if your browser hides downloads.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                      height: 1.35,
+                    ),
+                    textAlign: TextAlign.center,
                   ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 12),
+                  const SizedBox(height: 12),
+                ],
               ],
-              Row(
+              if (!_iosScreenshotChromeHidden)
+                Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   if (kIsWeb)

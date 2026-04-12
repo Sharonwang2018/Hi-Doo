@@ -12,46 +12,25 @@ bool _isAppleTouchWeb() {
   return false;
 }
 
-/// Web Share API (files) — iOS Safari can save PNG to Photos from the share sheet.
-Future<bool> _tryNavigatorSharePng(html.Blob blob, String filename) async {
-  final nav = html.window.navigator;
-  final navDyn = nav as dynamic;
-  if (navDyn.share == null) return false;
+/// True when the Web app should use the iOS “prepare for screenshot” flow.
+bool isIosWebPosterScreenshotTarget() => _isAppleTouchWeb();
 
-  html.File file;
-  try {
-    file = html.File([blob], filename, {'type': 'image/png'});
-  } catch (_) {
-    return false;
-  }
-
-  final shareData = <String, Object?>{
-    'files': [file],
-    'title': 'Hi-Doo reading poster',
-  };
-
-  if (navDyn.canShare != null) {
-    try {
-      final can = navDyn.canShare(shareData) as Object?;
-      if (can != true) return false;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  try {
-    final result = navDyn.share(shareData);
-    if (result is Future) {
-      await result;
-    }
-    return true;
-  } catch (_) {
-    return false;
-  }
+/// Full-screen screenshot guide: poster + minimal chrome (Done only).
+/// [onClosed] runs after the user taps Done (URL revoked).
+void openIosWebPosterScreenshotPreview(
+  Uint8List bytes, {
+  void Function()? onClosed,
+}) {
+  if (!_isAppleTouchWeb()) return;
+  final blob = html.Blob([bytes], 'image/png');
+  final url = html.Url.createObjectUrlFromBlob(blob);
+  _showIosScreenshotOverlay(url, onClosed: onClosed);
 }
 
-/// Full-screen native [img] so the user can **long-press → Save to Photos** (iOS Safari).
-void _showPosterSaveOverlay(String objectUrl) {
+void _showIosScreenshotOverlay(
+  String objectUrl, {
+  void Function()? onClosed,
+}) {
   final root = html.document.body;
   if (root == null) return;
 
@@ -61,63 +40,137 @@ void _showPosterSaveOverlay(String objectUrl) {
     ..style.top = '0'
     ..style.width = '100%'
     ..style.height = '100%'
-    ..style.backgroundColor = 'rgba(0,0,0,0.94)'
+    ..style.backgroundColor = '#000000'
+    ..style.zIndex = '2147483647'
+    ..style.display = 'flex'
+    ..style.flexDirection = 'column'
+    ..style.alignItems = 'center'
+    ..style.justifyContent = 'flex-start'
+    ..style.boxSizing = 'border-box'
+    ..style.padding = 'max(44px, env(safe-area-inset-top, 0px) + 28px) 40px max(48px, env(safe-area-inset-bottom, 0px) + 32px) 40px';
+
+  final topBar = html.DivElement()
+    ..style.width = '100%'
+    ..style.display = 'flex'
+    ..style.flexDirection = 'row'
+    ..style.justifyContent = 'flex-end'
+    ..style.alignItems = 'flex-start'
+    ..style.marginBottom = '8px';
+
+  final doneBtn = html.ButtonElement()
+    ..text = 'Done'
+    ..style.color = '#ffffff'
+    ..style.fontSize = '17px'
+    ..style.fontWeight = '600'
+    ..style.background = 'rgba(255,255,255,0.12)'
+    ..style.border = 'none'
+    ..style.borderRadius = '10px'
+    ..style.padding = '10px 18px'
+    ..style.cursor = 'pointer';
+
+  topBar.append(doneBtn);
+
+  final headline = html.DivElement()
+    ..text = 'Screenshots are the best way to save on iPhone! 📸'
+    ..style.color = '#ffffff'
+    ..style.fontSize = '18px'
+    ..style.fontWeight = '700'
+    ..style.textAlign = 'center'
+    ..style.lineHeight = '1.35'
+    ..style.marginBottom = '16px'
+    ..style.maxWidth = '520px';
+
+  final imgWrap = html.DivElement()
+    ..style.flex = '1'
+    ..style.display = 'flex'
+    ..style.alignItems = 'center'
+    ..style.justifyContent = 'center'
+    ..style.width = '100%'
+    ..style.minHeight = '0';
+
+  final img = html.ImageElement()
+    ..src = objectUrl
+    ..style.maxWidth = '100%'
+    ..style.maxHeight =
+        'min(62vh, calc(100dvh - 280px))'
+    ..style.width = 'auto'
+    ..style.height = 'auto'
+    ..style.objectFit = 'contain'
+    ..style.borderRadius = '16px'
+    ..style.boxShadow = '0 8px 32px rgba(0,0,0,0.45)'
+    ..style.touchAction = 'none'
+    ..style.userSelect = 'none';
+
+  imgWrap.append(img);
+
+  final hint = html.ParagraphElement()
+    ..text =
+        'Your poster is ready! Just take a screenshot to share with friends.'
+    ..style.color = '#c8c8c8'
+    ..style.fontSize = '15px'
+    ..style.fontWeight = '500'
+    ..style.textAlign = 'center'
+    ..style.lineHeight = '1.4'
+    ..style.marginTop = '20px'
+    ..style.marginBottom = '0'
+    ..style.maxWidth = '340px';
+
+  shell.append(topBar);
+  shell.append(headline);
+  shell.append(imgWrap);
+  shell.append(hint);
+  root.append(shell);
+
+  void remove() {
+    try {
+      shell.remove();
+    } catch (_) {}
+    try {
+      html.Url.revokeObjectUrl(objectUrl);
+    } catch (_) {}
+    onClosed?.call();
+  }
+
+  doneBtn.onClick.listen((_) => remove());
+}
+
+/// When [window.open] is blocked on non‑iOS Web, still offer a fullscreen [img].
+void _showGenericBlobFallbackOverlay(String objectUrl) {
+  final root = html.document.body;
+  if (root == null) return;
+
+  final shell = html.DivElement()
+    ..style.position = 'fixed'
+    ..style.left = '0'
+    ..style.top = '0'
+    ..style.width = '100%'
+    ..style.height = '100%'
+    ..style.backgroundColor = 'rgba(0,0,0,0.92)'
     ..style.zIndex = '2147483647'
     ..style.display = 'flex'
     ..style.flexDirection = 'column'
     ..style.alignItems = 'center'
     ..style.justifyContent = 'center'
-    ..style.padding = '12px'
+    ..style.padding = '40px'
     ..style.boxSizing = 'border-box';
 
-  final topRow = html.DivElement()
-    ..style.width = '100%'
-    ..style.display = 'flex'
-    ..style.justifyContent = 'space-between'
-    ..style.alignItems = 'center'
-    ..style.marginBottom = '8px'
-    ..style.maxWidth = '520px';
-
   final closeBtn = html.ButtonElement()
-    ..text = 'Done'
+    ..text = 'Close'
+    ..style.alignSelf = 'flex-end'
     ..style.color = '#fff'
-    ..style.fontSize = '17px'
-    ..style.fontWeight = '600'
+    ..style.marginBottom = '12px'
     ..style.background = 'transparent'
     ..style.border = 'none'
-    ..style.padding = '8px 12px';
-
-  final hintTop = html.DivElement()
-    ..text = 'Long-press the image → Save to Photos'
-    ..style.color = '#e0e0e0'
-    ..style.fontSize = '13px'
-    ..style.textAlign = 'center'
-    ..style.flex = '1';
-
-  topRow.append(hintTop);
-  topRow.append(closeBtn);
+    ..style.fontSize = '16px';
 
   final img = html.ImageElement()
     ..src = objectUrl
     ..style.maxWidth = '100%'
-    ..style.maxHeight = '78vh'
-    ..style.objectFit = 'contain'
-    ..style.touchAction = 'auto'
-    ..style.userSelect = 'none';
+    ..style.maxHeight = '75vh'
+    ..style.objectFit = 'contain';
 
-  final hintBottom = html.ParagraphElement()
-    ..text =
-        'If “Save to Photos” does not appear, use the Share button in Safari after saving.'
-    ..style.color = '#bdbdbd'
-    ..style.fontSize = '12px'
-    ..style.textAlign = 'center'
-    ..style.marginTop = '14px'
-    ..style.maxWidth = '320px'
-    ..style.lineHeight = '1.35';
-
-  shell.append(topRow);
+  shell.append(closeBtn);
   shell.append(img);
-  shell.append(hintBottom);
   root.append(shell);
 
   void remove() {
@@ -130,16 +183,11 @@ void _showPosterSaveOverlay(String objectUrl) {
   }
 
   closeBtn.onClick.listen((_) => remove());
-  shell.onClick.listen((e) {
-    if (identical(e.target, shell)) remove();
-  });
 }
 
-/// Triggers download / share for PNG [bytes].
-/// iOS Safari: prefers [navigator.share] (file), then full-screen preview for long-press save.
-/// Desktop: blob or data URL + [download] anchor.
+/// Desktop / Android Web: blob or data URL + [download] anchor.
 ///
-/// Returns a short user hint for SnackBar when the flow is not a classic “file download”.
+/// Returns `null` for default SnackBar, non-empty string for custom hint.
 Future<String?> downloadPosterPng(
   Uint8List bytes, {
   required String filename,
@@ -149,16 +197,6 @@ Future<String?> downloadPosterPng(
   final name = safeName.isEmpty ? 'poster.png' : safeName;
 
   final blob = html.Blob([bytes], 'image/png');
-
-  if (await _tryNavigatorSharePng(blob, name)) {
-    return 'Share sheet opened — choose Save Image to add to Photos (or another app).';
-  }
-
-  if (_isAppleTouchWeb()) {
-    final url = html.Url.createObjectUrlFromBlob(blob);
-    _showPosterSaveOverlay(url);
-    return 'Long-press the image, then tap Save to Photos.';
-  }
 
   void triggerDownload(String href) {
     final anchor = html.AnchorElement(href: href)
@@ -195,22 +233,20 @@ Future<String?> downloadPosterPng(
   return null;
 }
 
-/// On iOS Safari, [window.open] on blob URLs is often blocked — use full-screen preview for long-press save.
-/// Returns an optional SnackBar hint; desktop usually returns a new-tab message.
+/// Opens blob in a new tab, or falls back to screenshot overlay if blocked.
 String? openPosterImageInNewTab(Uint8List bytes) {
   final blob = html.Blob([bytes], 'image/png');
   final url = html.Url.createObjectUrlFromBlob(blob);
 
-  if (_isAppleTouchWeb()) {
-    _showPosterSaveOverlay(url);
-    return 'Long-press the image, then tap Save to Photos.';
-  }
-
-  // ignore: avoid_dynamic_calls — [Window.open] is typed non-null but browsers may return null when blocked.
+  // ignore: avoid_dynamic_calls — browsers may return null when blocked.
   final dynamic opened = html.window.open(url, '_blank');
   if (opened == null) {
-    _showPosterSaveOverlay(url);
-    return 'Popup was blocked — long-press the image to save.';
+    if (_isAppleTouchWeb()) {
+      _showIosScreenshotOverlay(url, onClosed: null);
+      return 'Popup was blocked — use the fullscreen preview to screenshot.';
+    }
+    _showGenericBlobFallbackOverlay(url);
+    return 'Popup was blocked — use the preview, then save or screenshot the image.';
   }
 
   Future<void>.delayed(const Duration(minutes: 2), () {
