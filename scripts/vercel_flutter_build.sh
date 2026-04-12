@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Vercel: no Flutter on PATH by default — install stable SDK once per build (shallow clone).
 # Set in Vercel → Environment Variables: API_BASE_URL, SUPABASE_URL, SUPABASE_ANON_KEY (optional: DONATION_URL).
+# API_BASE_URL = site origin only (e.g. https://your-app.vercel.app), NOT .../api — the app already prefixes /api/....
 set -eo pipefail
 
 cd "$(dirname "$0")/.."

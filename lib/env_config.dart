@@ -19,18 +19,38 @@ class EnvConfig {
   static const String _supabaseAnonKeyDefine =
       String.fromEnvironment('SUPABASE_ANON_KEY', defaultValue: '');
 
+  /// Backend mounts at site root (`/books`, `/api/book-lookup`, …). If `API_BASE_URL` is
+  /// mistakenly set to `https://host/api`, strip the trailing `/api` so paths do not become
+  /// `/api/api/...` (404 on Vercel).
+  static String normalizeApiBaseRoot(String raw) {
+    var s = raw.trim();
+    if (s.isEmpty) return s;
+    while (s.endsWith('/')) {
+      s = s.substring(0, s.length - 1);
+    }
+    if (s.endsWith('/api')) {
+      s = s.substring(0, s.length - 4);
+    }
+    while (s.endsWith('/')) {
+      s = s.substring(0, s.length - 1);
+    }
+    return s;
+  }
+
   static String get apiBaseUrl {
     final fromDefine = _apiBaseUrlDefine.trim();
     if (fromDefine.isNotEmpty) {
-      return fromDefine.endsWith('/')
-          ? fromDefine.substring(0, fromDefine.length - 1)
-          : fromDefine;
+      return normalizeApiBaseRoot(fromDefine);
     }
-    if (!kIsWeb) return 'http://10.0.0.138:3000';
+    if (!kIsWeb) {
+      return normalizeApiBaseRoot('http://10.0.0.138:3000');
+    }
     final b = Uri.base;
     final scheme = b.scheme;
-    if (b.port == 3000 || b.port == 443 || b.port == 80) return b.origin;
-    return '$scheme://${b.host}:3000';
+    if (b.port == 3000 || b.port == 443 || b.port == 80) {
+      return normalizeApiBaseRoot(b.origin);
+    }
+    return normalizeApiBaseRoot('$scheme://${b.host}:3000');
   }
 
   /// Join [path] (must start with `/`) to a normalized API base — avoids `//api/...` when

@@ -1,9 +1,13 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_FILE = path.join(__dirname, '..', 'data', 'quota_state.json');
+const DATA_FILE =
+  process.env.VERCEL === '1'
+    ? path.join(os.tmpdir(), 'hi-doo-quota-state.json')
+    : path.join(__dirname, '..', 'data', 'quota_state.json');
 
 /** 未配置 env 时的默认每日上限（注册用户 / 访客与匿名共用设备标识时） */
 const DEFAULTS = {
