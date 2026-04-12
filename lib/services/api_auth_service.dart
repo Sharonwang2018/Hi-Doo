@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:echo_reading/env_config.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -103,12 +104,17 @@ class ApiAuthService {
   }
 
   /// 浏览器内 OAuth（Web 为主）：完成后回到站点，由 Supabase 从 URL 恢复 session。
+  /// Web 必须传 [redirectTo] 为当前站点 origin，否则会使用 Supabase Dashboard 的 Site URL（常为 localhost）。
   /// 原生 App 需另配 deep link 与 Dashboard Redirect URLs，参见 Supabase Flutter 文档。
   static Future<bool> signInWithGoogle() async {
     if (!EnvConfig.hasSupabase) {
       throw AppAuthException('Supabase is not configured (SUPABASE_URL / SUPABASE_ANON_KEY).');
     }
-    return _client.auth.signInWithOAuth(OAuthProvider.google);
+    final redirectTo = kIsWeb ? Uri.base.origin : null;
+    return _client.auth.signInWithOAuth(
+      OAuthProvider.google,
+      redirectTo: redirectTo,
+    );
   }
 
   static Future<String> login({
