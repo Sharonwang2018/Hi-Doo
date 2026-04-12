@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:cross_file/cross_file.dart';
 import 'package:echo_reading/env_config.dart';
 import 'package:echo_reading/utils/donation_url_launch.dart';
+import 'package:echo_reading/utils/poster_download.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -562,10 +563,36 @@ class _PosterShareDialogState extends State<_PosterShareDialog> {
                     ),
                 ],
               ),
-              if (kIsWeb) ...[
+              if (kIsWeb && _posterBytes != null) ...[
                 const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: () async {
+                    try {
+                      await downloadPosterPng(
+                        _posterBytes!,
+                        filename: 'hidoo_reading_achievement.png',
+                      );
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Download started — check your downloads folder.',
+                          ),
+                        ),
+                      );
+                    } catch (e) {
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Could not download: $e')),
+                      );
+                    }
+                  },
+                  icon: const Icon(Icons.download_rounded),
+                  label: const Text('Download Poster'),
+                ),
+                const SizedBox(height: 12),
                 Text(
-                  'Long-press to save your achievement poster!',
+                  'Click the download button to save your poster!',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                     fontWeight: FontWeight.w600,
@@ -587,7 +614,16 @@ class _PosterShareDialogState extends State<_PosterShareDialog> {
               await Clipboard.setData(ClipboardData(text: widget.shareUrl));
               if (!context.mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Link copied')),
+                SnackBar(
+                  content: Text(
+                    'Link copied!\nShare this app with your friends.',
+                    style: GoogleFonts.montserrat(
+                      fontWeight: FontWeight.w600,
+                      height: 1.35,
+                    ),
+                  ),
+                  duration: const Duration(seconds: 4),
+                ),
               );
             },
             style: TextButton.styleFrom(
