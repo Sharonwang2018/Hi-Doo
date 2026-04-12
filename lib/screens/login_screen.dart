@@ -114,16 +114,24 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Welcome'),
-      ),
+      // 无 AppBar：避免与旧版「Sign in / Sign up」标签栏混淆；顶部仅品牌与表单。
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const SizedBox(height: 24),
+              if (Navigator.canPop(context))
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: IconButton(
+                    tooltip: 'Back',
+                    icon: const Icon(Icons.arrow_back_rounded),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                )
+              else
+                const SizedBox(height: 8),
               Text(
                 'Hi-Doo',
                 style: GoogleFonts.quicksand(
@@ -163,7 +171,7 @@ class _LoginScreenState extends State<LoginScreen> {
               ],
               const SizedBox(height: 24),
               Text(
-                'Sign in with Google or enter your email to save your reading journey',
+                'Continue with Google or enter your email below to save your reading journey.',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: Colors.black54,
                     ),
@@ -257,7 +265,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         );
                       },
-                child: const Text('Look around only (sign in to save)'),
+                child: const Text('Look around only (log in to save)'),
               ),
             ],
           ),

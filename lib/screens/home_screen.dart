@@ -238,7 +238,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         children: [
                           Icon(Icons.login_rounded, size: 22),
                           SizedBox(width: 10),
-                          Text('Sign in'),
+                          Text('Log in'),
                         ],
                       ),
                     ),

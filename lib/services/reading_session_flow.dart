@@ -31,9 +31,9 @@ class ReadingSessionFlow {
     final ok = await showDialog<bool>(
       context: outerContext,
       builder: (c) => AlertDialog(
-        title: const Text('Sign in required'),
+        title: const Text('Account required'),
         content: const Text(
-          'Sign in with email or Google to save your reading journey and Story Challenge progress. '
+          'Log in with Google or email to save your reading journey and Story Challenge progress. '
           'You can look around the app first, but saving needs an account.',
         ),
         actions: [
@@ -43,7 +43,7 @@ class ReadingSessionFlow {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(c, true),
-            child: const Text('Sign in'),
+            child: const Text('Continue'),
           ),
         ],
       ),
