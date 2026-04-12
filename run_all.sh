@@ -3,7 +3,7 @@
 # 1. 确保数据库已建: createdb echo_reading && psql -d echo_reading -f sql/schema.sql
 # 2. 首次 HTTPS 需生成证书: ./scripts/gen_certs.sh
 # 3. 配置 AI: 见 docs/DOUBAO_SETUP.md（豆包 ARK_* 或 OpenRouter + 可选 OpenAI）
-# 4. Supabase Auth：export SUPABASE_URL SUPABASE_ANON_KEY，或复制 supabase_flutter.env.example → supabase_flutter.env 并填写；api/.env 配 SUPABASE_JWT_SECRET
+# 4. Supabase Auth：export SUPABASE_URL SUPABASE_ANON_KEY，或复制 supabase_flutter.env.example → supabase_flutter.env 并填写；server/.env 配 SUPABASE_JWT_SECRET
 # 5. ./run_all.sh
 # Browser testing without cert warnings: HTTP=1 ./run_all.sh
 
@@ -15,7 +15,7 @@ PORT="${PORT:-3000}"
 # Hint only (Web UI uses same origin — do not bake a fixed API URL unless you export API_BASE_URL_FOR_BUILD).
 LAN_IP="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)"
 USE_HTTPS=false
-[ -f api/certs/cert.pem ] && [ -f api/certs/key.pem ] && [ "${HTTP:-}" != "1" ] && USE_HTTPS=true
+[ -f server/certs/cert.pem ] && [ -f server/certs/key.pem ] && [ "${HTTP:-}" != "1" ] && USE_HTTPS=true
 SCHEME=http; [ "$USE_HTTPS" = true ] && SCHEME=https
 
 if { [ -z "${ARK_API_KEY:-}" ] || [ -z "${ARK_ENDPOINT_ID:-}" ]; } && [ -z "${OPENROUTER_API_KEY:-}" ]; then
@@ -62,13 +62,13 @@ if [ "$USE_HTTPS" = true ]; then
   fi
   echo "   UI + API same origin. If the browser warns about HTTPS, use Advanced → Proceed, or: HTTP=1 $0"
   echo ""
-  cd api && HTTPS=1 npm start
+  cd server && HTTPS=1 npm start
 else
-  [ -f api/certs/cert.pem ] && [ -f api/certs/key.pem ] || echo "⚠️  For HTTPS first run: ./scripts/gen_certs.sh"
+  [ -f server/certs/cert.pem ] && [ -f server/certs/key.pem ] || echo "⚠️  For HTTPS first run: ./scripts/gen_certs.sh"
   echo "🌐 This machine: http://localhost:${PORT}  or  http://127.0.0.1:${PORT}"
   if [ -n "$LAN_IP" ]; then
     echo "🌐 Same Wi‑Fi: http://${LAN_IP}:${PORT}"
   fi
   echo ""
-  cd api && npm start
+  cd server && npm start
 fi

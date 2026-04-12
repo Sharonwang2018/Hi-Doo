@@ -1,8 +1,24 @@
 {
+  "name": "hi-doo",
+  "private": true,
+  "type": "module",
   "scripts": {
     "vercel-build": "bash scripts/vercel_flutter_build.sh",
-    "dev": "npm run dev --prefix api",
-    "start": "npm start --prefix api"
+    "dev": "npm run dev --prefix server",
+    "start": "npm start --prefix server"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "form-data": "^4.0.5",
+    "jose": "^5.10.0",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^1.4.5-lts.1",
+    "pg": "^8.13.0",
+    "uuid": "^10.0.0",
+    "ws": "^8.19.0"
   },
   "devDependencies": {
     "favicons": "^7.2.0"

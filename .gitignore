@@ -2,10 +2,10 @@
 run_app.sh
 supabase_flutter.env
 **/tcb_custom_login.json
-api/certs/*.pem
-api/.env
-api/uploads/
-api/data/quota_state.json
+server/certs/*.pem
+server/.env
+server/uploads/
+server/data/quota_state.json
 
 # Root tooling deps (e.g. favicon generator); use package-lock + npm ci
 /node_modules/

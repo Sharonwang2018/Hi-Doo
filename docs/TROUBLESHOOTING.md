@@ -15,7 +15,7 @@ iPhone 访问自签名证书（`https://10.0.0.138:3000`）时，页面能打开
 无需在手机上安装证书：
 
 1. 安装 ngrok：`brew install ngrok` 或从 https://ngrok.com 下载
-2. 终端 1 启动服务：`./run_all.sh`（或 `cd api && HTTPS=1 npm start`）
+2. 终端 1 启动服务：`./run_all.sh`（或 `cd server && HTTPS=1 npm start`）
 3. 终端 2 运行：`./scripts/run_with_ngrok.sh`
 4. 手机浏览器访问 ngrok 输出的 `https://xxx.ngrok-free.app`（扫码和存书均可用）
 
@@ -52,13 +52,13 @@ iPhone 访问自签名证书（`https://10.0.0.138:3000`）时，页面能打开
 
 书籍和阅读记录存在后端 PostgreSQL。测试时若要「从零开始」：
 
-- 确保 `api/.env` 里配置了 `DATABASE_URL`（或使用默认 `postgresql://localhost:5432/echo_reading`）。
+- 确保 `server/.env` 里配置了 `DATABASE_URL`（或使用默认 `postgresql://localhost:5432/echo_reading`）。
 - 在项目根目录或 `api` 目录执行（按需二选一）：
 
 **只清空阅读记录（保留书籍和用户）：**
 
 ```bash
-cd api && node -e "
+cd server && node -e "
 const { query } = await import('./db.js');
 await query('DELETE FROM read_logs');
 console.log('read_logs 已清空');
@@ -69,7 +69,7 @@ process.exit(0);
 **连书籍一起清空（用户与阅读记录都清）：**
 
 ```bash
-cd api && node -e "
+cd server && node -e "
 const { query } = await import('./db.js');
 await query('DELETE FROM read_logs');
 await query('DELETE FROM books');

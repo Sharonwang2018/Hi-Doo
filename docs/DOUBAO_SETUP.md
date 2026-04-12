@@ -9,7 +9,7 @@
 
 在 [火山引擎控制台](https://console.volcengine.com/ark) 开通「火山方舟」，创建 API Key，并为模型创建**推理接入点**（得到 `ep-xxxx` 形式的 ID）。
 
-在 `api/.env` 中配置：
+在 `server/.env` 中配置：
 
 ```bash
 ARK_API_KEY=你的方舟API_Key
@@ -57,7 +57,7 @@ VOLC_TTS_CLUSTER=volcano_tts
 
 鉴权与接口说明（与本项目后端一致）：大模型 HTTP 非流式见 [1257584](https://www.volcengine.com/docs/6561/1257584)（与旧版 [79820](https://www.volcengine.com/docs/6561/79820) 同一 URL `openspeech.bytedance.com/api/v1/tts`）。后端对 `BV*` 精品音色仍传 `language`，其余音色传大模型 `explicit_language`；可选 `VOLC_TTS_MODEL=seed-tts-1.1`。部分「语音合成 2.0」音色仅支持 V3 接口，见 1257584 文内说明。
 
-**与「豆包语音合成模型 2.0」控制台的关系：** 快捷接入里若指向 [完整调用指南 WebSocket 双向流式-V3](https://www.volcengine.com/docs/6561/1329505)，那是 **WebSocket** 协议，**不是**上面这条 HTTP POST。若你购买/开通的是 2.0 资源，请到文档树 **语音合成大模型** 下查找与 HTTP 兼容的说明（例如同目录下的 [HTTP Chunked/SSE 单向流式-V3](https://www.volcengine.com/docs/6561/1598757)、或 [HTTP 一次性合成（大模型侧文档）](https://www.volcengine.com/docs/6561/1257584)），按其中的 **cluster、voice_type、鉴权** 填入 `VOLC_TTS_*`；仍不匹配时需改 `api/routes/tts.js` 以对接新接口。控制台 **字数包仍为 0** 时，常见原因是请求实际打在旧版「在线合成」或 OpenAI 回退上，未计入 2.0 实例。
+**与「豆包语音合成模型 2.0」控制台的关系：** 快捷接入里若指向 [完整调用指南 WebSocket 双向流式-V3](https://www.volcengine.com/docs/6561/1329505)，那是 **WebSocket** 协议，**不是**上面这条 HTTP POST。若你购买/开通的是 2.0 资源，请到文档树 **语音合成大模型** 下查找与 HTTP 兼容的说明（例如同目录下的 [HTTP Chunked/SSE 单向流式-V3](https://www.volcengine.com/docs/6561/1598757)、或 [HTTP 一次性合成（大模型侧文档）](https://www.volcengine.com/docs/6561/1257584)），按其中的 **cluster、voice_type、鉴权** 填入 `VOLC_TTS_*`；仍不匹配时需改 `server/routes/tts.js` 以对接新接口。控制台 **字数包仍为 0** 时，常见原因是请求实际打在旧版「在线合成」或 OpenAI 回退上，未计入 2.0 实例。
 
 未配置豆包 TTS 时，**回退 OpenAI**：
 

@@ -5,7 +5,7 @@
 
 set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-CERT_DIR="${SCRIPT_DIR}/../api/certs"
+CERT_DIR="${SCRIPT_DIR}/../server/certs"
 mkdir -p "$CERT_DIR"
 cd "$CERT_DIR"
 
