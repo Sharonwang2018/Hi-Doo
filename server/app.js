@@ -5,6 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import cors from 'cors';
 
+import { getAudioDir } from './lib/upload_paths.js';
 import booksRoutes from './routes/books.js';
 import readLogsRoutes from './routes/read_logs.js';
 import uploadRoutes from './routes/upload.js';
@@ -18,8 +19,7 @@ import { resolveChatProvider } from './lib/llm_providers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, 'uploads');
-const AUDIO_DIR = path.join(UPLOAD_DIR, 'audio');
+const AUDIO_DIR = getAudioDir();
 const WEB_BUILD = path.join(__dirname, '..', 'build', 'web');
 
 const app = express();
@@ -75,7 +75,7 @@ app.use('/api/transcribe', transcribeRoutes);
 app.use('/api/book-lookup', bookLookupRoutes);
 app.use('/api/quiz-reports', quizReportsRoutes);
 
-if (!fs.existsSync(AUDIO_DIR)) fs.mkdirSync(AUDIO_DIR, { recursive: true });
+// AUDIO_DIR is writable on Vercel only under /tmp; folder is created on first upload (see upload.js).
 app.use('/audio', express.static(AUDIO_DIR));
 
 app.get('/health', (req, res) => {
