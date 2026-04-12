@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -5,11 +6,12 @@ import 'package:cross_file/cross_file.dart';
 import 'package:echo_reading/env_config.dart';
 import 'package:echo_reading/utils/donation_url_launch.dart';
 import 'package:echo_reading/utils/poster_download.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:http/http.dart' as http;
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -459,6 +461,9 @@ class _PosterShareDialog extends StatefulWidget {
 class _PosterShareDialogState extends State<_PosterShareDialog> {
   final GlobalKey _boundaryKey = GlobalKey();
   Uint8List? _posterBytes;
+  /// Web: load cover via [http] so [RepaintBoundary.toImage] is not blocked by
+  /// cross-origin [Image.network] (Safari / CanvasKit “tainted canvas”).
+  Uint8List? _webCoverBytes;
   bool _isGenerating = true;
   bool _downloadBusy = false;
 
@@ -468,7 +473,68 @@ class _PosterShareDialogState extends State<_PosterShareDialog> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _generateAndShare());
+    if (kIsWeb) {
+      unawaited(_prepareWebCoverThenCapture());
+    } else {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _generateAndShare());
+    }
+  }
+
+  Future<void> _prepareWebCoverThenCapture() async {
+    final raw = widget.bookCoverUrl?.trim();
+    if (raw != null && raw.isNotEmpty) {
+      final bytes = await _fetchCoverBytesForWebPoster(raw);
+      if (mounted && bytes != null && bytes.isNotEmpty) {
+        setState(() => _webCoverBytes = bytes);
+      }
+    }
+    if (!mounted) return;
+    // Allow [Image.memory] to decode and lay out before [toImage].
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_generateAndShare());
+      });
+    });
+  }
+
+  /// Same-origin [/api/cover-proxy] first (no CORS); then direct [http] as fallback.
+  Future<Uint8List?> _fetchCoverBytesForWebPoster(String raw) async {
+    final uri = Uri.tryParse(raw);
+    if (uri == null || (!uri.isScheme('http') && !uri.isScheme('https'))) {
+      return null;
+    }
+    final canonicalUrl =
+        uri.isScheme('http') ? uri.replace(scheme: 'https').toString() : raw;
+    const headers = {'Accept': 'image/*,*/*;q=0.8'};
+    final apiRoot = EnvConfig.apiBaseUrl.trim();
+    if (apiRoot.isNotEmpty) {
+      try {
+        final proxy = Uri.parse(
+          EnvConfig.joinApiBase(apiRoot, '/api/cover-proxy'),
+        ).replace(queryParameters: {'url': canonicalUrl});
+        final resp = await http
+            .get(proxy, headers: headers)
+            .timeout(const Duration(seconds: 18));
+        if (resp.statusCode == 200 && resp.bodyBytes.isNotEmpty) {
+          return resp.bodyBytes;
+        }
+      } catch (e) {
+        debugPrint('poster cover via proxy: $e');
+      }
+    }
+    try {
+      final directUri =
+          uri.isScheme('http') ? uri.replace(scheme: 'https') : uri;
+      final resp = await http
+          .get(directUri, headers: headers)
+          .timeout(const Duration(seconds: 15));
+      if (resp.statusCode == 200 && resp.bodyBytes.isNotEmpty) {
+        return resp.bodyBytes;
+      }
+    } catch (e) {
+      debugPrint('poster cover direct: $e');
+    }
+    return null;
   }
 
   Future<void> _downloadPosterToDevice() async {
@@ -499,53 +565,78 @@ class _PosterShareDialogState extends State<_PosterShareDialog> {
   }
 
   Future<void> _generateAndShare() async {
-    try {
-      final boundary = _boundaryKey.currentContext?.findRenderObject();
-      if (boundary is! RenderRepaintBoundary) {
-        throw Exception('Could not build poster: missing render boundary');
-      }
+    Object? lastError;
+    final maxAttempts = kIsWeb ? 2 : 1;
+    for (var attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        final boundary = _boundaryKey.currentContext?.findRenderObject();
+        if (boundary is! RenderRepaintBoundary) {
+          throw Exception('Could not build poster: missing render boundary');
+        }
 
-      final image = await boundary.toImage(pixelRatio: 2.4);
-      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-      if (byteData == null) throw Exception('Poster export failed: empty image data');
-      final bytes = byteData.buffer.asUint8List();
+        final pixelRatio = kIsWeb
+            ? (attempt == 0 ? 2.0 : 1.0)
+            : 2.4;
+        final image = await boundary.toImage(pixelRatio: pixelRatio);
+        final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+        if (byteData == null) {
+          throw Exception('Poster export failed: empty image data');
+        }
+        final bytes = byteData.buffer.asUint8List();
 
-      if (!mounted) return;
-      setState(() {
-        _posterBytes = bytes;
-        _isGenerating = false;
-      });
-
-      if (kIsWeb) return;
-
-      final xfile = XFile.fromData(
-        bytes,
-        name: 'hidoo_reading_achievement.png',
-        mimeType: 'image/png',
-      );
-
-      await Share.shareXFiles(
-        [xfile],
-        text: 'Hi-Doo | Think & Retell — scan the QR code to join',
-      );
-    } catch (_) {
-      if (mounted) {
+        if (!mounted) return;
         setState(() {
+          _posterBytes = bytes;
           _isGenerating = false;
         });
-      }
-      final c = widget.comment?.trim();
-      if (c != null && c.isNotEmpty) {
-        await Clipboard.setData(ClipboardData(text: c));
-      }
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Poster share failed — text copied instead')),
+
+        if (kIsWeb) return;
+
+        final xfile = XFile.fromData(
+          bytes,
+          name: 'hidoo_reading_achievement.png',
+          mimeType: 'image/png',
         );
+
+        await Share.shareXFiles(
+          [xfile],
+          text: 'Hi-Doo | Think & Retell — scan the QR code to join',
+        );
+        if (mounted) Navigator.of(context).pop();
+        return;
+      } catch (e) {
+        lastError = e;
+        debugPrint('poster capture attempt ${attempt + 1}/$maxAttempts: $e');
+        if (attempt + 1 < maxAttempts) {
+          await Future<void>.delayed(const Duration(milliseconds: 450));
+        }
       }
-    } finally {
-      if (mounted && !kIsWeb) Navigator.of(context).pop();
     }
+
+    if (mounted) {
+      setState(() {
+        _isGenerating = false;
+      });
+    }
+    final c = widget.comment?.trim();
+    if (c != null && c.isNotEmpty) {
+      await Clipboard.setData(ClipboardData(text: c));
+    }
+    if (lastError != null) {
+      debugPrint('poster capture failed: $lastError');
+    }
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            kIsWeb
+                ? 'Could not save the poster file on this browser. Take a screenshot of the preview above, or use Copy link.'
+                : 'Poster share failed — text copied instead',
+          ),
+        ),
+      );
+    }
+    if (mounted && !kIsWeb) Navigator.of(context).pop();
   }
 
   int get _starDisplayCount {
@@ -597,6 +688,7 @@ class _PosterShareDialogState extends State<_PosterShareDialog> {
                         height: _posterH,
                         bookTitle: widget.bookTitle,
                         coverUrl: widget.bookCoverUrl,
+                        coverMemoryBytes: kIsWeb ? _webCoverBytes : null,
                         achieverLabel: widget.achieverLabel,
                         starCount: _starDisplayCount,
                         streakDays: widget.streakDays,
@@ -625,6 +717,18 @@ class _PosterShareDialogState extends State<_PosterShareDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              if (kIsWeb && !_isGenerating && _posterBytes == null) ...[
+                Text(
+                  'Could not build a downloadable image on this device. Screenshot the poster above or use Copy link.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w600,
+                    height: 1.35,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+              ],
               if (kIsWeb && _posterBytes != null) ...[
                 FilledButton.icon(
                   onPressed: _downloadBusy ? null : () => _downloadPosterToDevice(),
@@ -737,6 +841,7 @@ class _AchievementPosterFace extends StatelessWidget {
     required this.height,
     required this.bookTitle,
     required this.coverUrl,
+    this.coverMemoryBytes,
     required this.achieverLabel,
     required this.starCount,
     required this.streakDays,
@@ -747,6 +852,8 @@ class _AchievementPosterFace extends StatelessWidget {
   final double height;
   final String bookTitle;
   final String? coverUrl;
+  /// When set (Web), avoids [Image.network] inside the export layer so [toImage] works.
+  final Uint8List? coverMemoryBytes;
   final String achieverLabel;
   final int starCount;
   final int streakDays;
@@ -803,15 +910,7 @@ class _AchievementPosterFace extends StatelessWidget {
             Center(
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(10),
-                child: coverUrl != null && coverUrl!.isNotEmpty
-                    ? Image.network(
-                        coverUrl!,
-                        width: 112,
-                        height: 152,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) => _coverPlaceholder(),
-                      )
-                    : _coverPlaceholder(),
+                child: _buildCover(),
               ),
             ),
             const SizedBox(height: 10),
@@ -963,6 +1062,30 @@ class _AchievementPosterFace extends StatelessWidget {
       color: const Color(0xFFEEE8E4),
       child: const Icon(Icons.menu_book_rounded, size: 48, color: Color(0xFFBCAAA4)),
     );
+  }
+
+  Widget _buildCover() {
+    final mem = coverMemoryBytes;
+    if (mem != null && mem.isNotEmpty) {
+      return Image.memory(
+        mem,
+        width: 112,
+        height: 152,
+        fit: BoxFit.cover,
+        gaplessPlayback: true,
+        errorBuilder: (context, error, stackTrace) => _coverPlaceholder(),
+      );
+    }
+    if (!kIsWeb && coverUrl != null && coverUrl!.isNotEmpty) {
+      return Image.network(
+        coverUrl!,
+        width: 112,
+        height: 152,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) => _coverPlaceholder(),
+      );
+    }
+    return _coverPlaceholder();
   }
 }
 

@@ -14,6 +14,7 @@ import chatRoutes from './routes/chat.js';
 import assessmentRoutes from './routes/assessment.js';
 import transcribeRoutes from './routes/transcribe.js';
 import bookLookupRoutes from './routes/book_lookup.js';
+import coverProxyRoutes from './routes/cover_proxy.js';
 import quizReportsRoutes from './routes/quiz_reports.js';
 import { resolveChatProvider } from './lib/llm_providers.js';
 
@@ -73,6 +74,7 @@ app.use('/api/chat', chatRoutes);
 app.use('/api/assessment', assessmentRoutes);
 app.use('/api/transcribe', transcribeRoutes);
 app.use('/api/book-lookup', bookLookupRoutes);
+app.use('/api/cover-proxy', coverProxyRoutes);
 app.use('/api/quiz-reports', quizReportsRoutes);
 
 // AUDIO_DIR is writable on Vercel only under /tmp; folder is created on first upload (see upload.js).
