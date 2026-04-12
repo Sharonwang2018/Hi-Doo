@@ -272,6 +272,7 @@ class ReadingSessionFlow {
         title: sessionBook.title,
         author: sessionBook.author,
         summary: sessionBook.summary,
+        isbn: sessionBook.isbn,
         mode: _mode(kind),
       );
       if (context.mounted) {

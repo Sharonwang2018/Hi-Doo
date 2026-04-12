@@ -261,6 +261,7 @@ class ApiService {
     String? summary,
     String? bookTitle,
     String? bookAuthor,
+    String? isbn,
     String? challengeMode,
     double temperature = 0.55,
   }) async {
@@ -273,6 +274,7 @@ class ApiService {
       if (summary != null) 'summary': summary,
       if (bookTitle != null && bookTitle.trim().isNotEmpty) 'bookTitle': bookTitle.trim(),
       if (bookAuthor != null && bookAuthor.trim().isNotEmpty) 'bookAuthor': bookAuthor.trim(),
+      if (isbn != null && isbn.trim().isNotEmpty) 'isbn': isbn.trim(),
       if (challengeMode != null && challengeMode.trim().isNotEmpty) 'challengeMode': challengeMode.trim(),
     };
     final res = await http

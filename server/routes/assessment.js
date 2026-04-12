@@ -38,66 +38,39 @@ Return ONLY valid JSON:
 
 logic_score: 1–5 for overall retelling effort and coherence (5 = strong, clear; 1 = very brief or unclear)—judge gently for elementary age.`;
 
-const SYSTEM_BOOK_QUIZ = `You are a professional children's literacy expert and a warm Reading Coach. You generate comprehension quizzes using ONLY the book metadata and summary provided in the user message. You do NOT have the full book text.
+const SYSTEM_BOOK_QUIZ = `You are a FUN READING COACH for U.S. grades 1–3 (ages ~6–8): playful, simple, never stuffy. You do NOT have the full book text—only title, optional summary, and metadata from the user message.
 
-PRIORITY: Prefer producing a quiz whenever there is ANY usable story hint. Only return quiz_unavailable when the summary is literally empty or contains zero story details (after ignoring catalog placeholders), AND the title does not reasonably suggest a subject or theme. If the story is simple or the text is short, make the questions simple and easy—do not refuse a quiz just because the material is brief.
+LANGUAGE (mandatory): Regardless of the language of any input fields, EVERY user-facing string you output in JSON must be ENGLISH only: key_facts, book_context, every quiz "question", every "options" string, and every "explanation".
 
-STRICT CONTEXT (no hallucinations):
-- Use ONLY: the given title, author, and summary text. Do not invent characters, scenes, endings, or facts that are not clearly supported by that material.
-- Do not rely on your memory of the book from outside this conversation. If something is not in the summary (or explicitly implied there), do not use it.
-- You MAY use the title to infer a likely main character, subject, or theme when the summary is thin, and build fair, easy questions from title + summary together—still do not invent specific plot events that neither title nor summary plausibly suggest.
-- If the summary is short but mentions at least a main character, setting, theme, or one concrete story beat, always try: derive key_facts from what is written (and title hints if needed) and build three fair MCQs.
+PRIORITY: Almost always produce a quiz. If the summary is very short or empty after removing catalog placeholders, you MUST still write 3 fun, easy MCQs using (a) any real detail from the summary AND/OR (b) the book title to ask fair, grade-1–3-appropriate questions grounded in obvious real-world or "type of book" common sense (e.g. a title about dinosaurs → simple dino-themed questions; a famous fairy-tale title → very generic, non-spoiler questions about that kind of tale). Do NOT invent specific plot scenes that a reader would only know from reading the book—stay with title + summary + safe general knowledge.
 
-MANDATORY WORKFLOW (follow this order in your JSON output):
-1) First, write "key_facts": an array of 1 to 3 short strings (use as many as you can honestly ground—1 is OK if the text is tiny). Each string is ONE concrete fact in plain English supported by the summary and/or title (story content only—do not use the author line as a fact). No speculation; no "probably" or invented details.
-2) Then write "book_context": one brief sentence that stays within those facts (safe paraphrase of the strongest shared context).
-3) Then write "quiz": exactly 3 MCQs. Every question, every answer option, and every explanation MUST be fully answerable using ONLY those key_facts plus the book title when needed for disambiguation—never using who wrote it. If you have at least one grounded key_fact or a clear title hint, prefer writing simple questions over returning quiz_unavailable.
+quiz_unavailable: Return this ONLY when the title is missing or not a usable book title AND the summary is empty or a useless placeholder—i.e. you truly cannot form any reasonable, honest questions. If there is ANY recognizable title topic, prefer 3 simple English questions over quiz_unavailable.
 
-QUIZ RULES:
-1. Generate exactly 3 Multiple Choice Questions (MCQ).
-2. Level 1 (Literal): confidence builder. Set "level": "Literal" and "id": 1.
-3. Level 2 (Inferential): "Why" or "How" that still follows from the key_facts only. Set "level": "Inferential" and "id": 2.
-4. Level 3 (Emotional/Critical): feelings or connection, grounded in what the summary/key_facts support. Set "level": "Emotional" and "id": 3.
-5. Each question has exactly 3 options in order A, B, C (may use "A) " prefix or plain text).
-6. "answer" must be exactly "A", "B", or "C".
-7. Simple English for ages roughly 6–8; encouraging tone; wrong options plausible but incorrect per the key_facts.
-8. SELF-CORRECTION / "explanation" (required for every quiz item): Write in a warm, child-friendly tone (often 2–4 short sentences; briefer is OK when the book hints are thin). You MUST (a) align with the letter in "answer" and the key_facts/summary, and (b) avoid praising a wrong option as correct. Do not contradict the letter in "answer" (never say a different letter is correct). Only mention details supported by key_facts.
-9. NEVER ask meta-questions about the catalog or missing text: do not ask whether a "summary" exists, is missing, or is "available"; do not put phrases like "summary available", "no summary", or "description" in any question or option. Quiz only about characters, events, feelings, or facts from the actual story hints in the summary/title—not about library metadata.
-10. NEVER ask about the author, illustrator, or "who wrote/drew this book"—children are practicing comprehension of the story, not catalog trivia. Do not put author names in questions, options, or explanations unless the summary itself is about the author (rare).
+QUIZ STYLE:
+- Wording: very short sentences, concrete, maybe a tiny bit silly or game-like—still clear for early readers.
+- Three levels: (1) Literal easy win, (2) simple inferential "why/how" still tied to your key_facts, (3) light feelings or connection—still grounded.
+- Each MCQ: exactly 3 options (A/B/C). "answer" is exactly "A", "B", or "C".
+- NEVER ask about the author, ISBN, or catalog metadata. No meta-questions about "summary" or "description" existing.
+
+explanation (each item): A SHORT encouraging mini-comment in English—one or two brief sentences max (roughly under 220 characters). Cheer the child, confirm why the chosen letter fits, and do NOT contradict the letter in "answer". Do not write long paragraphs.
+
+MANDATORY JSON ORDER:
+1) "key_facts": 1–3 short English strings you can honestly support from summary and/or title (and safe common sense when summary is tiny).
+2) "book_context": one short English sentence.
+3) "quiz": exactly 3 objects with id 1 Literal, 2 Inferential, 3 Emotional; each has question, options (3 strings), answer, explanation.
 
 RESPONSE FORMAT (JSON ONLY, no markdown):
 {
-  "key_facts": ["<1–3 facts from summary/title only; omit extras if you cannot ground them>"],
-  "book_context": "One sentence grounded in key_facts only.",
+  "key_facts": ["...", "..."],
+  "book_context": "...",
   "quiz": [
-    {
-      "id": 1,
-      "level": "Literal",
-      "question": "...",
-      "options": ["A) ...", "B) ...", "C) ..."],
-      "answer": "A",
-      "explanation": "Why A fits the story … Why B and C don't match what we know …"
-    },
-    {
-      "id": 2,
-      "level": "Inferential",
-      "question": "...",
-      "options": ["A) ...", "B) ...", "C) ..."],
-      "answer": "B",
-      "explanation": "Why B fits … Why A and C don't match the summary …"
-    },
-    {
-      "id": 3,
-      "level": "Emotional",
-      "question": "...",
-      "options": ["A) ...", "B) ...", "C) ..."],
-      "answer": "C",
-      "explanation": "Why C fits … Why A and B don't fit …"
-    }
+    { "id": 1, "level": "Literal", "question": "...", "options": ["A) ...", "B) ...", "C) ..."], "answer": "A", "explanation": "Short upbeat English—one or two sentences." },
+    { "id": 2, "level": "Inferential", "question": "...", "options": ["A) ...", "B) ...", "C) ..."], "answer": "B", "explanation": "..." },
+    { "id": 3, "level": "Emotional", "question": "...", "options": ["A) ...", "B) ...", "C) ..."], "answer": "C", "explanation": "..." }
   ]
 }
 
-If and ONLY if there is literally no story content (empty/placeholder summary and no reasonable hint from the title), respond ONLY with:
+If and ONLY if you cannot form any honest quiz per quiz_unavailable rule above, respond ONLY with:
 {"quiz_unavailable":true,"fallback_message":"I'm still learning about this story, let's try a Retell challenge instead!","book_context":"","key_facts":[],"quiz":[]}`;
 
 const SYSTEM_BOOK_STORYTELLER = `Act as a warm listener helping a child retell a story—not an examiner.
@@ -118,11 +91,11 @@ Rules:
 - retelling_hints: always [] (do not use).
 - English only; warm and simple for ages roughly 5–10.`;
 
-const SYSTEM_BOOK_BOTH = `You are a professional children's literacy expert and a warm Reading Coach plus retelling listener. You only know title, author, and optional catalog summary—not full page text.
+const SYSTEM_BOOK_BOTH = `You combine two roles: (1) the same FUN grade 1–3 English reading coach as in the quiz-only system for MCQs, and (2) a warm retelling listener. You only know title, author, optional summary—not full page text.
 
-1) Quiz: Same grounding as quiz-only: key_facts (1 to 3 strings) from the summary/title—no invented plot; author is never a quiz topic. Prioritize generating a quiz; quiz_unavailable only when there is zero story detail (see quiz-only rules). Never ask about whether a summary exists or is "available"—only story content.
+1) Quiz: All quiz strings MUST be ENGLISH. Use playful, simple MCQs; explanations are short encouraging English (one or two brief sentences each). If summary is very thin, still build 3 questions from title + any summary + safe common sense—avoid quiz_unavailable unless the title is unusable and summary is empty (same bar as quiz-only). Never quiz author/ISBN/catalog meta.
 
-2) Storyteller: Act as a warm listener. Give ONE short inviting retelling_prompt (one question only) and retelling_keywords: ["First","Next","Then","Finally"]. retelling_hints must be [].
+2) Storyteller: retelling_prompt = ONE central inviting question in English; retelling_keywords: ["First","Next","Then","Finally"]; retelling_hints: [].
 
 RESPONSE FORMAT (JSON ONLY, no markdown):
 {
@@ -227,7 +200,17 @@ function normalizeReadingCoachQuizList(quizArr) {
 }
 
 /** Min length for each quiz explanation (attempts 0–1); final attempt skips this check. */
-const MIN_QUIZ_EXPLANATION_CHARS = 20;
+const MIN_QUIZ_EXPLANATION_CHARS = 12;
+/** Max length to keep explanations short and encouraging (attempts 0–1). */
+const MAX_QUIZ_EXPLANATION_CHARS = 320;
+
+/** Strip hyphens/spaces from ISBN before sending to the model (catalog context only). */
+function normalizeIsbnForAi(raw) {
+  return String(raw ?? '')
+    .replace(/-/g, '')
+    .replace(/\s/g, '')
+    .trim();
+}
 
 /** Groq calls when MCQ JSON fails validation (strict checks, then one more relaxed pass). */
 const MAX_MCQ_COMPREHENSION_ATTEMPTS = 3;
@@ -270,6 +253,7 @@ function explanationContradictsAnswerLetter(explanation, correctLetter) {
  */
 function validateQuizSelfCorrection(rawQuiz, opts = {}) {
   const minExpl = opts.minExplanationChars ?? MIN_QUIZ_EXPLANATION_CHARS;
+  const maxExpl = opts.maxExplanationChars ?? MAX_QUIZ_EXPLANATION_CHARS;
   const skipLen = opts.skipExplanationLength === true;
   const reasons = [];
   if (!Array.isArray(rawQuiz) || rawQuiz.length !== 3) {
@@ -284,7 +268,12 @@ function validateQuizSelfCorrection(rawQuiz, opts = {}) {
     const exp = String(raw.explanation ?? '').trim();
     if (!skipLen && exp.length < minExpl) {
       reasons.push(
-        `quiz[${i}]: explanation too short (need at least ${minExpl} characters to justify correct + distractors)`,
+        `quiz[${i}]: explanation too short (need at least ${minExpl} characters; keep a short encouraging comment)`,
+      );
+    }
+    if (!skipLen && exp.length > maxExpl) {
+      reasons.push(
+        `quiz[${i}]: explanation too long (keep under ${maxExpl} characters; one or two brief sentences)`,
       );
     }
     const ansRaw = String(raw.answer ?? raw.correct ?? '')
@@ -311,7 +300,8 @@ router.post('/', quotaPreCheck('assessment'), async (req, res, next) => {
     });
   }
 
-  const { kind, transcript, summary, bookTitle, bookAuthor, challengeMode } = req.body || {};
+  const { kind, transcript, summary, bookTitle, bookAuthor, challengeMode, isbn: rawIsbn } =
+    req.body || {};
   const temperature =
     typeof req.body?.temperature === 'number' && req.body.temperature >= 0 && req.body.temperature <= 2
       ? req.body.temperature
@@ -324,6 +314,7 @@ router.post('/', quotaPreCheck('assessment'), async (req, res, next) => {
         return res.status(400).json({ error: 'invalid_book', message: 'bookTitle is required.' });
       }
       const author = String(bookAuthor ?? '').trim();
+      const isbnForAi = normalizeIsbnForAi(rawIsbn);
       const sum = truncateText(summaryTextForQuiz(summary), 4000);
       const mode = String(challengeMode ?? 'both').toLowerCase();
       if (!['quiz', 'storyteller', 'both'].includes(mode)) {
@@ -341,10 +332,13 @@ router.post('/', quotaPreCheck('assessment'), async (req, res, next) => {
       const mcqUserLine =
         mode === 'storyteller'
           ? ''
-          : `\n\nJSON must include "key_facts" (1 to 3 strings) first, then "book_context", then "quiz" (3 objects: id 1 Literal, 2 Inferential, 3 Emotional) with "question", "options" (3 strings), "answer" ("A"|"B"|"C"), and "explanation". Each "explanation" must justify the correct letter using the book/key_facts and briefly rule out the two wrong options. Questions must be grounded ONLY in those key_facts plus title for disambiguation—never author trivia, no outside plot.\n`;
-      const userMsgBase = `The child is reading "${truncateText(title, 400)}" by ${author ? truncateText(author, 200) : 'an unknown author'}.
+          : `\n\nJSON must include "key_facts" (1 to 3 strings, English), then "book_context" (English), then "quiz" (3 objects: id 1 Literal, 2 Inferential, 3 Emotional) with English "question", "options" (3 strings), "answer" ("A"|"B"|"C"), and short encouraging English "explanation" (one or two brief sentences each, aligned with "answer"). Do not ask author/ISBN trivia.\n`;
+      const isbnLine = isbnForAi
+        ? `\nISBN (hyphens removed; catalog context only—do NOT mention in questions or options): ${isbnForAi}\n`
+        : '';
+      const userMsgBase = `The child is reading "${truncateText(title, 400)}" by ${author ? truncateText(author, 200) : 'an unknown author'}.${isbnLine}
 
-Follow your system instructions strictly. Do not invent plot beyond title/summary. Prioritize a quiz when there is any story hint (even a very short summary or a suggestive title). Use quiz_unavailable only when there is truly no story content. Do not ask who wrote the book—the author line is context only.
+Follow your system instructions strictly. All quiz-facing text must be ENGLISH. Prefer a fun quiz whenever the title or summary gives any hook; use quiz_unavailable only in the rare case described in your system prompt. Do not ask who wrote the book—the author line is context only.
 
 Summary (story facts for the quiz; title may clarify; do not quiz author names): ${sum || '(none)'}${mcqUserLine}
 Return only the JSON object.`;
@@ -365,7 +359,7 @@ Return only the JSON object.`;
             ? userMsgBase
             : isLastAttempt
               ? `${userMsgBase}\n\nREGENERATE: ${regenHint}\nReturn the complete JSON again. Each quiz[].answer (A/B/C) must match its explanation with no contradictions. Explanations may be brief.`
-              : `${userMsgBase}\n\nREGENERATE: ${regenHint}\nReturn the complete JSON again. Every quiz[].explanation must match the letter in quiz[].answer and briefly justify the correct option and why the other two do not fit (each explanation at least ~${MIN_QUIZ_EXPLANATION_CHARS} characters).`;
+              : `${userMsgBase}\n\nREGENERATE: ${regenHint}\nReturn the complete JSON again. Every quiz[].explanation must match the letter in quiz[].answer—short encouraging English (at least ~${MIN_QUIZ_EXPLANATION_CHARS} characters, one or two brief sentences).`;
 
         const body = {
           model: cfg.model,

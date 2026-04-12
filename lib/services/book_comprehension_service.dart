@@ -122,6 +122,7 @@ class BookComprehensionService {
     required String title,
     required String author,
     String? summary,
+    String? isbn,
     required BookChallengeMode mode,
   }) async {
     final json = await ApiService.postAssessment(
@@ -129,6 +130,7 @@ class BookComprehensionService {
       summary: summary,
       bookTitle: title,
       bookAuthor: author,
+      isbn: isbn,
       challengeMode: mode.apiValue,
       temperature: 0.55,
     );
