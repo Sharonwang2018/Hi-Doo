@@ -461,9 +461,13 @@ class _PosterShareDialog extends StatefulWidget {
 class _PosterShareDialogState extends State<_PosterShareDialog> {
   final GlobalKey _boundaryKey = GlobalKey();
   Uint8List? _posterBytes;
-  /// Web: load cover via [http] so [RepaintBoundary.toImage] is not blocked by
-  /// cross-origin [Image.network] (Safari / CanvasKit “tainted canvas”).
+  /// Web: same-origin [/api/cover-proxy] URL for [Image.network] (avoids CORS taint).
+  String? _webCoverProxyUrl;
+  /// Web: prefetch bytes as fallback when [Image.network] proxy fails to decode.
   Uint8List? _webCoverBytes;
+  /// Web: second-chance export — placeholder cover only (text + QR, no remote bitmaps).
+  bool _forceCleanPosterOnly = false;
+  bool _exportedCleanFallback = false;
   bool _isGenerating = true;
   bool _downloadBusy = false;
 
@@ -480,9 +484,27 @@ class _PosterShareDialogState extends State<_PosterShareDialog> {
     }
   }
 
+  String? _coverProxyUrlForWeb(String raw) {
+    final uri = Uri.tryParse(raw.trim());
+    if (uri == null || (!uri.isScheme('http') && !uri.isScheme('https'))) {
+      return null;
+    }
+    final apiRoot = EnvConfig.apiBaseUrl.trim();
+    if (apiRoot.isEmpty) return null;
+    final canonical =
+        uri.isScheme('http') ? uri.replace(scheme: 'https').toString() : raw.trim();
+    return Uri.parse(
+      EnvConfig.joinApiBase(apiRoot, '/api/cover-proxy'),
+    ).replace(queryParameters: {'url': canonical}).toString();
+  }
+
   Future<void> _prepareWebCoverThenCapture() async {
     final raw = widget.bookCoverUrl?.trim();
     if (raw != null && raw.isNotEmpty) {
+      final proxy = _coverProxyUrlForWeb(raw);
+      if (mounted && proxy != null) {
+        setState(() => _webCoverProxyUrl = proxy);
+      }
       final bytes = await _fetchCoverBytesForWebPoster(raw);
       if (mounted && bytes != null && bytes.isNotEmpty) {
         setState(() => _webCoverBytes = bytes);
@@ -554,7 +576,15 @@ class _PosterShareDialogState extends State<_PosterShareDialog> {
           ),
         ),
       );
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('[HiDoo poster download] error: $e');
+      debugPrint('[HiDoo poster download] stack: $st');
+      final es = e.toString();
+      if (es.contains('Tainted') || es.toLowerCase().contains('tainted')) {
+        debugPrint(
+          '[HiDoo poster download] matches tainted canvas / export restriction (often CORS-related on Web).',
+        );
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Could not download: $e')),
@@ -606,10 +636,57 @@ class _PosterShareDialogState extends State<_PosterShareDialog> {
         return;
       } catch (e) {
         lastError = e;
-        debugPrint('poster capture attempt ${attempt + 1}/$maxAttempts: $e');
+        debugPrint(
+          'poster capture attempt ${attempt + 1}/$maxAttempts: $e (${e.runtimeType})',
+        );
+        final es = e.toString();
+        if (es.contains('Tainted') || es.toLowerCase().contains('tainted')) {
+          debugPrint(
+            '[HiDoo poster capture] likely tainted canvas (CORS / cross-origin pixels).',
+          );
+        }
         if (attempt + 1 < maxAttempts) {
           await Future<void>.delayed(const Duration(milliseconds: 450));
         }
+      }
+    }
+
+    if (kIsWeb && mounted) {
+      try {
+        setState(() {
+          _forceCleanPosterOnly = true;
+        });
+        await WidgetsBinding.instance.endOfFrame;
+        await Future<void>.delayed(const Duration(milliseconds: 32));
+        await WidgetsBinding.instance.endOfFrame;
+
+        final boundary = _boundaryKey.currentContext?.findRenderObject();
+        if (boundary is RenderRepaintBoundary) {
+          final image = await boundary.toImage(pixelRatio: 1.0);
+          final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+          if (byteData != null) {
+            final bytes = byteData.buffer.asUint8List();
+            if (mounted) {
+              setState(() {
+                _posterBytes = bytes;
+                _forceCleanPosterOnly = false;
+                _exportedCleanFallback = true;
+                _isGenerating = false;
+              });
+            }
+            debugPrint('poster: clean fallback (no cover bitmap) export ok');
+            return;
+          }
+        }
+      } catch (e, st) {
+        lastError = e;
+        debugPrint('poster clean fallback failed: $e');
+        debugPrint('poster clean fallback stack: $st');
+      }
+      if (mounted) {
+        setState(() {
+          _forceCleanPosterOnly = false;
+        });
       }
     }
 
@@ -688,7 +765,9 @@ class _PosterShareDialogState extends State<_PosterShareDialog> {
                         height: _posterH,
                         bookTitle: widget.bookTitle,
                         coverUrl: widget.bookCoverUrl,
+                        coverSameOriginProxyUrl: _webCoverProxyUrl,
                         coverMemoryBytes: kIsWeb ? _webCoverBytes : null,
+                        omitCoverImage: kIsWeb && _forceCleanPosterOnly,
                         achieverLabel: widget.achieverLabel,
                         starCount: _starDisplayCount,
                         streakDays: widget.streakDays,
@@ -717,21 +796,23 @@ class _PosterShareDialogState extends State<_PosterShareDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              if (kIsWeb && !_isGenerating && _posterBytes == null) ...[
-                Text(
-                  'Could not build a downloadable image on this device. Screenshot the poster above or use Copy link.',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                    fontWeight: FontWeight.w600,
-                    height: 1.35,
+              if (kIsWeb && !_isGenerating) ...[
+                if (_exportedCleanFallback) ...[
+                  Text(
+                    'Simplified poster (book cover omitted) so your browser can export the image.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.primary,
+                      fontWeight: FontWeight.w700,
+                      height: 1.35,
+                    ),
+                    textAlign: TextAlign.center,
                   ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 12),
-              ],
-              if (kIsWeb && _posterBytes != null) ...[
+                  const SizedBox(height: 10),
+                ],
                 FilledButton.icon(
-                  onPressed: _downloadBusy ? null : () => _downloadPosterToDevice(),
+                  onPressed: (_posterBytes == null || _downloadBusy)
+                      ? null
+                      : () => _downloadPosterToDevice(),
                   icon: _downloadBusy
                       ? const SizedBox(
                           width: 22,
@@ -750,7 +831,7 @@ class _PosterShareDialogState extends State<_PosterShareDialog> {
                 ),
                 const SizedBox(height: 10),
                 OutlinedButton.icon(
-                  onPressed: _downloadBusy
+                  onPressed: (_posterBytes == null || _downloadBusy)
                       ? null
                       : () {
                           openPosterImageInNewTab(_posterBytes!);
@@ -775,7 +856,9 @@ class _PosterShareDialogState extends State<_PosterShareDialog> {
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  'Save downloads the PNG. On iPhone Safari, use Open in new tab, then save the picture.',
+                  _posterBytes == null
+                      ? 'PNG export failed on this browser. Screenshot the preview above or use Copy link.'
+                      : 'Save downloads the PNG. On iPhone Safari, use Open in new tab, then save the picture.',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                     fontWeight: FontWeight.w600,
@@ -841,7 +924,9 @@ class _AchievementPosterFace extends StatelessWidget {
     required this.height,
     required this.bookTitle,
     required this.coverUrl,
+    this.coverSameOriginProxyUrl,
     this.coverMemoryBytes,
+    this.omitCoverImage = false,
     required this.achieverLabel,
     required this.starCount,
     required this.streakDays,
@@ -852,8 +937,12 @@ class _AchievementPosterFace extends StatelessWidget {
   final double height;
   final String bookTitle;
   final String? coverUrl;
-  /// When set (Web), avoids [Image.network] inside the export layer so [toImage] works.
+  /// Web: same-origin cover-proxy URL — safe for [RepaintBoundary.toImage] vs raw CDN URLs.
+  final String? coverSameOriginProxyUrl;
+  /// Web: bytes fallback when proxy [Image.network] fails.
   final Uint8List? coverMemoryBytes;
+  /// Web clean export: no cover bitmap (placeholder only).
+  final bool omitCoverImage;
   final String achieverLabel;
   final int starCount;
   final int streakDays;
@@ -1065,6 +1154,37 @@ class _AchievementPosterFace extends StatelessWidget {
   }
 
   Widget _buildCover() {
+    if (omitCoverImage) {
+      return _coverPlaceholder();
+    }
+    if (kIsWeb &&
+        coverSameOriginProxyUrl != null &&
+        coverSameOriginProxyUrl!.isNotEmpty) {
+      final mem = coverMemoryBytes;
+      return Image.network(
+        coverSameOriginProxyUrl!,
+        width: 112,
+        height: 152,
+        fit: BoxFit.cover,
+        isAntiAlias: false,
+        headers: const {'Accept': 'image/*,*/*;q=0.8'},
+        errorBuilder: (context, error, stackTrace) {
+          debugPrint('[HiDoo poster cover] proxy Image.network failed: $error');
+          if (mem != null && mem.isNotEmpty) {
+            return Image.memory(
+              mem,
+              width: 112,
+              height: 152,
+              fit: BoxFit.cover,
+              isAntiAlias: false,
+              gaplessPlayback: true,
+              errorBuilder: (c, e, s) => _coverPlaceholder(),
+            );
+          }
+          return _coverPlaceholder();
+        },
+      );
+    }
     final mem = coverMemoryBytes;
     if (mem != null && mem.isNotEmpty) {
       return Image.memory(
@@ -1072,6 +1192,7 @@ class _AchievementPosterFace extends StatelessWidget {
         width: 112,
         height: 152,
         fit: BoxFit.cover,
+        isAntiAlias: false,
         gaplessPlayback: true,
         errorBuilder: (context, error, stackTrace) => _coverPlaceholder(),
       );
@@ -1082,6 +1203,7 @@ class _AchievementPosterFace extends StatelessWidget {
         width: 112,
         height: 152,
         fit: BoxFit.cover,
+        isAntiAlias: false,
         errorBuilder: (context, error, stackTrace) => _coverPlaceholder(),
       );
     }
