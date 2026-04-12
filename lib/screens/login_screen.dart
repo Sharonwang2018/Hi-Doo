@@ -1,3 +1,4 @@
+import 'package:echo_reading/app_scaffold.dart';
 import 'package:echo_reading/env_config.dart';
 import 'package:echo_reading/screens/home_screen.dart';
 import 'package:echo_reading/services/api_auth_service.dart';
@@ -76,12 +77,16 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _loading = true);
 
     try {
+      LoginSnackCoordinator.suppressGlobalSignedInSnackFor(
+        const Duration(seconds: 8),
+      );
       final result = await ApiAuthService.continueWithEmail(
         email: _email,
         password: _password,
       );
       if (!mounted) return;
       if (result == EmailContinueResult.confirmEmailPending) {
+        LoginSnackCoordinator.clearSuppress();
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
@@ -93,15 +98,23 @@ class _LoginScreenState extends State<LoginScreen> {
         );
         return;
       }
+      hiDooScaffoldMessengerKey.currentState?.showSnackBar(
+        const SnackBar(
+          content: Text('Successfully signed in!'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
       Navigator.of(context).pushReplacement(
         MaterialPageRoute<void>(builder: (_) => const HomeScreen()),
       );
     } on AppAuthException catch (e) {
+      LoginSnackCoordinator.clearSuppress();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(e.message)),
       );
     } catch (e) {
+      LoginSnackCoordinator.clearSuppress();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('$e')),

@@ -56,8 +56,8 @@ class ApiService {
   /// 根据 ISBN 查询书籍（可选，用于 API 查重）
   static Future<Book?> getBookByIsbn(String isbn) async {
     _checkConfigured();
-    final uri = Uri.parse(
-      '${EnvConfig.apiBaseUrl}/books?isbn=$Uri.encodeComponent(isbn)',
+    final uri = Uri.parse(EnvConfig.apiUrl('/books')).replace(
+      queryParameters: {'isbn': isbn},
     );
     final res = await http.get(uri, headers: await _headers(withAuth: false));
     if (res.statusCode == 404) return null;
@@ -76,8 +76,8 @@ class ApiService {
   /// 由服务端请求 Open Library，避免手机浏览器直连外网出现 `ClientException: Load failed`。
   static Future<BookLookupResult?> lookupBookOpenLibrary(String isbn) async {
     _checkConfigured();
-    final uri = Uri.parse(
-      '${EnvConfig.apiBaseUrl}/api/book-lookup?isbn=${Uri.encodeComponent(isbn)}',
+    final uri = Uri.parse(EnvConfig.apiUrl('/api/book-lookup')).replace(
+      queryParameters: {'isbn': isbn},
     );
     final res = await http
         .get(uri, headers: await _headers(withAuth: false))
@@ -106,7 +106,7 @@ class ApiService {
   /// 创建或更新书籍
   static Future<Book> upsertBook(BookLookupResult lookup) async {
     _checkConfigured();
-    final uri = Uri.parse('${EnvConfig.apiBaseUrl}/books');
+    final uri = Uri.parse(EnvConfig.apiUrl('/books'));
     final res = await http.post(
       uri,
       headers: await _headers(),
@@ -142,7 +142,7 @@ class ApiService {
     String sessionType = 'retelling',
   }) async {
     _checkConfigured();
-    final uri = Uri.parse('${EnvConfig.apiBaseUrl}/read-logs');
+    final uri = Uri.parse(EnvConfig.apiUrl('/read-logs'));
     final body = jsonEncode({
       'book_id': bookId,
       'audio_url': audioUrl,
@@ -195,7 +195,7 @@ class ApiService {
     String aiFeedback,
   ) async {
     _checkConfigured();
-    final uri = Uri.parse('${EnvConfig.apiBaseUrl}/read-logs/$logId');
+    final uri = Uri.parse(EnvConfig.apiUrl('/read-logs/$logId'));
     final payload = jsonEncode({'ai_feedback': aiFeedback});
 
     Future<http.Response> patch() async =>
@@ -234,7 +234,7 @@ class ApiService {
     int? maxTokens,
   }) async {
     _checkConfigured();
-    final uri = Uri.parse('${EnvConfig.apiBaseUrl}/api/chat');
+    final uri = Uri.parse(EnvConfig.apiUrl('/api/chat'));
     final body = <String, dynamic>{
       'messages': messages,
       'temperature': temperature,
@@ -265,7 +265,7 @@ class ApiService {
     double temperature = 0.55,
   }) async {
     _checkConfigured();
-    final uri = Uri.parse('${EnvConfig.apiBaseUrl}/api/assessment');
+    final uri = Uri.parse(EnvConfig.apiUrl('/api/assessment'));
     final body = <String, dynamic>{
       'kind': kind,
       'temperature': temperature,
@@ -294,7 +294,7 @@ class ApiService {
     String contentType = 'audio/webm',
   }) async {
     _checkConfigured();
-    final uri = Uri.parse('${EnvConfig.apiBaseUrl}/api/transcribe');
+    final uri = Uri.parse(EnvConfig.apiUrl('/api/transcribe'));
     final base64 = base64Encode(audioBytes);
     final res = await http
         .post(
@@ -316,7 +316,7 @@ class ApiService {
   /// 获取“我的阅读记录列表”：每条记录附带书籍信息（后端 join）。
   static Future<List<ReadLogWithBook>> fetchReadLogs() async {
     _checkConfigured();
-    final uri = Uri.parse('${EnvConfig.apiBaseUrl}/read-logs');
+    final uri = Uri.parse(EnvConfig.apiUrl('/read-logs'));
 
     Future<http.Response> getLogs() async =>
         http.get(uri, headers: await _headers());
@@ -349,7 +349,7 @@ class ApiService {
     bool badContent = true,
   }) async {
     _checkConfigured();
-    final uri = Uri.parse('${EnvConfig.apiBaseUrl}/api/quiz-reports');
+    final uri = Uri.parse(EnvConfig.apiUrl('/api/quiz-reports'));
     final res = await http
         .post(
           uri,

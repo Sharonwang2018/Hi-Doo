@@ -1,8 +1,13 @@
 /**
- * Vercel Edge Middleware — proxies API routes to your Node/Postgres backend.
- * Set BACKEND_ORIGIN in Vercel (e.g. https://api.yourdomain.com).
- * Set Vercel project region to Washington, D.C. (iad1) for US East.
+ * Vercel Edge Middleware — optionally proxies API routes to an external backend.
+ *
+ * - **Same-origin deploy** (Flutter web + `api/` as Vercel functions via `vercel.json`
+ *   rewrites): leave `BACKEND_ORIGIN` unset, or set it to this site’s origin — we call
+ *   `next()` so requests hit your serverless API instead of proxying to yourself (loop).
+ * - **Split API host**: set `BACKEND_ORIGIN=https://api.example.com` (different host).
  */
+import { next } from '@vercel/edge';
+
 export const config = {
   matcher: [
     '/books',
@@ -23,19 +28,22 @@ function backendBase() {
   return raw.replace(/\/$/, '');
 }
 
+function sameOriginHost(backendBaseUrl, requestUrl) {
+  try {
+    return new URL(backendBaseUrl).host === new URL(requestUrl).host;
+  } catch {
+    return false;
+  }
+}
+
 export default async function middleware(request) {
   const base = backendBase();
-  if (!base) {
-    return new Response(
-      JSON.stringify({
-        error: 'edge_misconfigured',
-        message: 'Set BACKEND_ORIGIN in Vercel environment variables.',
-      }),
-      { status: 503, headers: { 'Content-Type': 'application/json' } },
-    );
+  const u = new URL(request.url);
+
+  if (!base || sameOriginHost(base, request.url)) {
+    return next();
   }
 
-  const u = new URL(request.url);
   const target = `${base}${u.pathname}${u.search}`;
 
   const headers = new Headers(request.headers);

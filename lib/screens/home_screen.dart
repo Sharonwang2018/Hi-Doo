@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:echo_reading/env_config.dart';
 import 'package:echo_reading/models/book.dart';
 import 'package:echo_reading/screens/my_read_logs_screen.dart';
@@ -11,6 +13,7 @@ import 'package:echo_reading/widgets/streak_home_badge.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -23,12 +26,27 @@ class _HomeScreenState extends State<HomeScreen> {
   final GlobalKey<HomeIsbnScannerState> _scanKey = GlobalKey<HomeIsbnScannerState>();
   BookLookupResult? _pendingLookup;
   bool _isLoggedIn = false;
+  User? _user;
+  StreamSubscription<AuthState>? _authSub;
 
   @override
   void initState() {
     super.initState();
     ReadingStreakService.refreshNotifier();
-    _checkAuth();
+    if (EnvConfig.hasSupabase) {
+      _authSub = Supabase.instance.client.auth.onAuthStateChange.listen((_) {
+        _syncAuthFromSupabase();
+      });
+    }
+    _syncAuthFromSupabase();
+  }
+
+  @override
+  void dispose() {
+    final sub = _authSub;
+    _authSub = null;
+    if (sub != null) unawaited(sub.cancel());
+    super.dispose();
   }
 
   void _showChallengeSheet(BookLookupResult lookup) {
@@ -51,16 +69,29 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  Future<void> _checkAuth() async {
-    if (!EnvConfig.isConfigured) return;
-    try {
-      final userInfo = await ApiAuthService.getUserInfo();
-      if (mounted) {
-        setState(() => _isLoggedIn = userInfo != null && userInfo.uuid.isNotEmpty);
+  void _syncAuthFromSupabase() {
+    if (!mounted) return;
+    final session = EnvConfig.hasSupabase
+        ? Supabase.instance.client.auth.currentSession
+        : null;
+    setState(() {
+      _user = session?.user;
+      _isLoggedIn = session != null;
+    });
+  }
+
+  String? _profileImageUrl(User? u) {
+    if (u == null) return null;
+    final m = u.userMetadata;
+    if (m == null) return null;
+    for (final key in ['avatar_url', 'picture', 'image', 'avatar']) {
+      final v = m[key];
+      if (v is String) {
+        final t = v.trim();
+        if (t.isNotEmpty) return t;
       }
-    } catch (_) {
-      if (mounted) setState(() => _isLoggedIn = false);
     }
+    return null;
   }
 
   Future<void> _openJourney() async {
@@ -71,7 +102,7 @@ class _HomeScreenState extends State<HomeScreen> {
         MaterialPageRoute(builder: (_) => const LoginScreen()),
       );
       if (ok == true && mounted) {
-        await _checkAuth();
+        _syncAuthFromSupabase();
         if (_isLoggedIn && mounted) {
           await Navigator.push<void>(
             context,
@@ -143,11 +174,11 @@ class _HomeScreenState extends State<HomeScreen> {
           context,
           MaterialPageRoute(builder: (_) => const LoginScreen()),
         );
-        if (ok == true && mounted) _checkAuth();
+        if (ok == true && mounted) _syncAuthFromSupabase();
         break;
       case 'logout':
         await ApiAuthService.signOut();
-        if (mounted) _checkAuth();
+        if (mounted) _syncAuthFromSupabase();
         break;
     }
   }
@@ -157,6 +188,7 @@ class _HomeScreenState extends State<HomeScreen> {
     // Clearance above in-scanner bottom bar (Scan row + safe area).
     final bottomFab =
         12 + 48 + 16 + MediaQuery.viewPaddingOf(context).bottom;
+    final profileAvatarUrl = _profileImageUrl(_user);
 
     return Scaffold(
       extendBody: true,
@@ -181,6 +213,28 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         actions: [
+          if (_isLoggedIn && _user != null) ...[
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: Tooltip(
+                message: 'Signed in',
+                child: CircleAvatar(
+                  radius: 18,
+                  backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
+                  backgroundImage: profileAvatarUrl != null
+                      ? NetworkImage(profileAvatarUrl)
+                      : null,
+                  child: profileAvatarUrl == null
+                      ? Icon(
+                          Icons.person_rounded,
+                          size: 22,
+                          color: Theme.of(context).colorScheme.onSecondaryContainer,
+                        )
+                      : null,
+                ),
+              ),
+            ),
+          ],
           Padding(
             padding: const EdgeInsets.only(right: 4),
             child: PopupMenuButton<String>(

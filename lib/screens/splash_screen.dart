@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:echo_reading/env_config.dart';
 import 'package:echo_reading/screens/home_screen.dart';
 import 'package:echo_reading/screens/login_screen.dart';
@@ -16,12 +18,59 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen> {
   bool _busy = false;
+  StreamSubscription<AuthState>? _authSub;
 
   static const Color _orange = Color(0xFFFF8C42);
   static const Color _blue = Color(0xFF6FB1FC);
   static const Color _warmGray = Color(0xFF8A8580);
   /// Warmer, darker slate-blue — strong contrast on peach/sky gradient vs. orange title.
   static const Color _taglinePrimary = Color(0xFF2E4050);
+
+  @override
+  void initState() {
+    super.initState();
+    if (EnvConfig.hasSupabase) {
+      _authSub = Supabase.instance.client.auth.onAuthStateChange.listen((_) {
+        if (mounted) setState(() {});
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    final sub = _authSub;
+    _authSub = null;
+    if (sub != null) unawaited(sub.cancel());
+    super.dispose();
+  }
+
+  String _primaryCtaLabel() {
+    if (!EnvConfig.hasSupabase) return 'Get Started';
+    final session = Supabase.instance.client.auth.currentSession;
+    if (session == null) return 'Get Started';
+    final name = _displayNameForUser(session.user);
+    if (name != null && name.isNotEmpty) {
+      return 'Hi $name, Start Reading!';
+    }
+    final email = session.user.email;
+    if (email != null && email.contains('@')) {
+      return 'Hi ${email.split('@').first}, Start Reading!';
+    }
+    return 'Hi, Start Reading!';
+  }
+
+  String? _displayNameForUser(User user) {
+    final m = user.userMetadata;
+    if (m == null) return null;
+    for (final key in ['full_name', 'name', 'given_name', 'preferred_username']) {
+      final v = m[key];
+      if (v is String) {
+        final t = v.trim();
+        if (t.isNotEmpty) return t;
+      }
+    }
+    return null;
+  }
 
   Future<void> _continue() async {
     if (_busy || !mounted) return;
@@ -219,6 +268,7 @@ class _SplashScreenState extends State<SplashScreen> {
                             width: ctaWidth,
                             busy: _busy,
                             orange: _orange,
+                            buttonLabel: _primaryCtaLabel(),
                             onPressed: _continue,
                           ),
                         ],
@@ -240,12 +290,14 @@ class _GetStartedCta extends StatefulWidget {
     required this.width,
     required this.busy,
     required this.orange,
+    required this.buttonLabel,
     required this.onPressed,
   });
 
   final double width;
   final bool busy;
   final Color orange;
+  final String buttonLabel;
   final Future<void> Function() onPressed;
 
   @override
@@ -303,13 +355,18 @@ class _GetStartedCtaState extends State<_GetStartedCta> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    Text(
-                      'Get Started',
-                      style: GoogleFonts.nunito(
-                        fontSize: 16.5,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.25,
-                        height: 1.1,
+                    Flexible(
+                      child: Text(
+                        widget.buttonLabel,
+                        style: GoogleFonts.nunito(
+                          fontSize: 16.5,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.25,
+                          height: 1.1,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
                       ),
                     ),
                     const SizedBox(width: 8),

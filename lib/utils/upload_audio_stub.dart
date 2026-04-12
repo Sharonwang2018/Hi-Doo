@@ -21,7 +21,7 @@ Future<String> uploadAudioToCloudBase(
   final ext = contentType.contains('webm') ? 'webm' : 'm4a';
   final filename = 'audio_${DateTime.now().millisecondsSinceEpoch}.$ext';
 
-  final uri = Uri.parse('${EnvConfig.apiBaseUrl}/upload/audio');
+  final uri = Uri.parse(EnvConfig.apiUrl('/upload/audio'));
 
   Future<http.Response> sendWithToken(String t) async {
     final request = http.MultipartRequest('POST', uri);

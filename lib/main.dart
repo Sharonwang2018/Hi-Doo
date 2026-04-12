@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:echo_reading/app_scaffold.dart';
 import 'package:echo_reading/env_config.dart';
 import 'package:echo_reading/screens/splash_screen.dart';
 import 'package:echo_reading/services/reading_streak_service.dart';
@@ -24,8 +25,45 @@ Future<void> main() async {
   runApp(const HiDooApp());
 }
 
-class HiDooApp extends StatelessWidget {
+class HiDooApp extends StatefulWidget {
   const HiDooApp({super.key});
+
+  @override
+  State<HiDooApp> createState() => _HiDooAppState();
+}
+
+class _HiDooAppState extends State<HiDooApp> {
+  StreamSubscription<AuthState>? _authSub;
+
+  @override
+  void initState() {
+    super.initState();
+    if (EnvConfig.hasSupabase) {
+      _authSub = Supabase.instance.client.auth.onAuthStateChange.listen(
+        (AuthState data) {
+          if (data.event == AuthChangeEvent.signedIn &&
+              data.session != null &&
+              !LoginSnackCoordinator.shouldSuppressGlobalSignedInSnack) {
+            hiDooScaffoldMessengerKey.currentState?.showSnackBar(
+              const SnackBar(
+                content: Text('Successfully signed in!'),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
+          if (mounted) setState(() {});
+        },
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    final sub = _authSub;
+    _authSub = null;
+    if (sub != null) unawaited(sub.cancel());
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -39,6 +77,7 @@ class HiDooApp extends StatelessWidget {
     );
 
     return MaterialApp(
+      scaffoldMessengerKey: hiDooScaffoldMessengerKey,
       title: 'Hi-Doo | Think & Retell — Interactive Literacy Assistant',
       debugShowCheckedModeBanner: false,
       locale: const Locale('en', 'US'),

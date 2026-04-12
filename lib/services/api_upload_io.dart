@@ -15,7 +15,7 @@ Future<String> uploadAudioFile(Object fileOrPath, {String contentType = 'audio/w
   final File file = fileOrPath is File ? fileOrPath : File(fileOrPath as String);
   if (!await file.exists()) throw Exception('Recording file not found');
 
-  final uri = Uri.parse('${EnvConfig.apiBaseUrl}/upload/audio');
+  final uri = Uri.parse(EnvConfig.apiUrl('/upload/audio'));
 
   Future<http.Response> sendWithToken(String t) async {
     final request = http.MultipartRequest('POST', uri);

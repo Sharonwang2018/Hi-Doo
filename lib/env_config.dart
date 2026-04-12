@@ -33,6 +33,21 @@ class EnvConfig {
     return '$scheme://${b.host}:3000';
   }
 
+  /// Join [path] (must start with `/`) to a normalized API base — avoids `//api/...` when
+  /// the base or path has stray slashes.
+  static String joinApiBase(String base, String path) {
+    final b = base.trim();
+    var p = path.trim();
+    if (p.isEmpty) p = '/';
+    if (!p.startsWith('/')) p = '/$p';
+    if (b.isEmpty) return p;
+    final bn = b.endsWith('/') ? b.substring(0, b.length - 1) : b;
+    return '$bn$p';
+  }
+
+  /// Same as [joinApiBase] with [apiBaseUrl].
+  static String apiUrl(String path) => joinApiBase(apiBaseUrl, path);
+
   /// Supabase 项目 URL，无末尾斜杠
   static String get supabaseUrl {
     var u = _supabaseUrlDefine.trim();

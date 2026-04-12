@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:echo_reading/env_config.dart';
 import 'package:echo_reading/services/api_service.dart';
 import 'package:echo_reading/services/tts_mp3_cache.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
@@ -19,9 +20,7 @@ Future<Uint8List> fetchTtsMp3Bytes(String apiBaseUrl, String text) async {
     return cached;
   }
 
-  final base =
-      apiBaseUrl.endsWith('/') ? apiBaseUrl.substring(0, apiBaseUrl.length - 1) : apiBaseUrl;
-  final uri = Uri.parse('$base/api/tts');
+  final uri = Uri.parse(EnvConfig.joinApiBase(apiBaseUrl, '/api/tts'));
   final headers = await ApiService.quotaHttpHeaders();
   final res = await http
       .post(
