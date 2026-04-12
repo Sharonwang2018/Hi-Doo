@@ -1,10 +1,9 @@
 import pg from 'pg';
+import { buildPgPoolConfig } from './pg_config.js';
 
 const { Pool } = pg;
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://localhost:5432/echo_reading',
-});
+const pool = new Pool(buildPgPoolConfig());
 
 export async function query(text, params) {
   const res = await pool.query(text, params);

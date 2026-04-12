@@ -245,7 +245,7 @@ Future<void> _playMp3WithAudioElement(Uint8List bytes) async {
     }
   }));
   subs.add(audio.onError.listen((_) {
-    completeError(Exception('TTS 音频解码或播放错误'));
+    completeError(Exception('TTS decode or playback failed'));
   }));
   subs.add(audio.onTimeUpdate.listen((_) => onPlaybackMaybeComplete()));
   subs.add(audio.onLoadedData.listen((_) => onPlaybackMaybeComplete()));

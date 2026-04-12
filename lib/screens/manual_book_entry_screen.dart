@@ -69,7 +69,7 @@ class _ManualBookEntryScreenState extends State<ManualBookEntryScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('手动输入书籍'),
+        title: const Text('Add book manually'),
       ),
       body: SafeArea(
         child: ResponsiveLayout.constrainToMaxWidth(
@@ -82,7 +82,7 @@ class _ManualBookEntryScreenState extends State<ManualBookEntryScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Text(
-                    '书库未收录时可在此填写，保存后与其它书一样使用。',
+                    'If the scan did not find your book, enter details here—it works like any other title.',
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                   const SizedBox(height: 20),
@@ -90,7 +90,7 @@ class _ManualBookEntryScreenState extends State<ManualBookEntryScreen> {
                     controller: _isbnCtrl,
                     decoration: const InputDecoration(
                       labelText: 'ISBN',
-                      hintText: '已扫码会自动填入；没有可留空',
+                      hintText: 'Prefilled after a scan; optional',
                       border: OutlineInputBorder(),
                     ),
                   ),
@@ -98,12 +98,12 @@ class _ManualBookEntryScreenState extends State<ManualBookEntryScreen> {
                   TextFormField(
                     controller: _titleCtrl,
                     decoration: const InputDecoration(
-                      labelText: '书名',
+                      labelText: 'Title',
                       border: OutlineInputBorder(),
                     ),
                     textCapitalization: TextCapitalization.words,
                     validator: (v) {
-                      if (v == null || v.trim().isEmpty) return '请填写书名';
+                      if (v == null || v.trim().isEmpty) return 'Please enter a title';
                       return null;
                     },
                   ),
@@ -111,18 +111,18 @@ class _ManualBookEntryScreenState extends State<ManualBookEntryScreen> {
                   TextFormField(
                     controller: _authorCtrl,
                     decoration: const InputDecoration(
-                      labelText: '作者',
+                      labelText: 'Author',
                       border: OutlineInputBorder(),
                     ),
                     validator: (v) {
-                      if (v == null || v.trim().isEmpty) return '请填写作者';
+                      if (v == null || v.trim().isEmpty) return 'Please enter an author';
                       return null;
                     },
                   ),
                   const SizedBox(height: 28),
                   FilledButton(
                     onPressed: _submit,
-                    child: const Text('下一步：确认信息'),
+                    child: const Text('Continue to confirm'),
                   ),
                 ],
               ),

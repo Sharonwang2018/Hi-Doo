@@ -3,7 +3,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { authMiddleware } from '../middleware/auth.js';
+import { authMiddleware, rejectGuestWrite } from '../middleware/auth.js';
 import { v4 as uuidv4 } from 'uuid';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -31,11 +31,12 @@ const router = Router();
 
 router.post('/audio', authMiddleware, upload.single('file'), (req, res, next) => {
   try {
+    if (rejectGuestWrite(req, res)) return;
     if (!req.file) {
       return res.status(400).json({ error: 'no_file', message: '未上传文件' });
     }
     const proto = req.get('X-Forwarded-Proto') || req.protocol || 'http';
-    const host = req.get('Host') || `10.0.0.138:${process.env.PORT || 3000}`;
+    const host = req.get('Host') || `localhost:${process.env.PORT || 3000}`;
     const baseUrl = process.env.API_BASE_URL || `${proto}://${host}`;
     const url = `${baseUrl}/audio/${req.file.filename}`;
     res.json({ url, filename: req.file.filename });

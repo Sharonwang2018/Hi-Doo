@@ -8,10 +8,11 @@ router.post('/', quotaPreCheck('chat'), async (req, res, next) => {
   try {
     const cfg = resolveChatProvider();
     if (!cfg) {
-      console.warn('[chat] 未配置 ARK_* 或 OPENROUTER_API_KEY，请检查 api/.env');
+      console.warn('[chat] No LLM: set GROQ_API_KEY (recommended) or ARK_* / OPENROUTER_API_KEY');
       return res.status(503).json({
         error: 'chat_not_configured',
-        message: '请配置火山方舟 ARK_API_KEY + ARK_ENDPOINT_ID，或 OPENROUTER_API_KEY（见 docs）',
+        message:
+          'Configure GROQ_API_KEY, or ARK_* / OPENROUTER_API_KEY. See api/.env.example.',
       });
     }
 
@@ -21,7 +22,7 @@ router.post('/', quotaPreCheck('chat'), async (req, res, next) => {
         ? Math.min(4096, Math.floor(maxTokensBody))
         : 1024;
     if (!Array.isArray(messages) || messages.length === 0) {
-      return res.status(400).json({ error: 'invalid_messages', message: 'messages 不能为空' });
+      return res.status(400).json({ error: 'invalid_messages', message: 'messages array is required.' });
     }
 
     const resp = await fetch(cfg.url, {
@@ -35,7 +36,7 @@ router.post('/', quotaPreCheck('chat'), async (req, res, next) => {
     const data = await resp.json();
     if (resp.status !== 200) {
       const msg = data?.error?.message || data?.message || resp.statusText;
-      console.warn('[chat] LLM 错误:', cfg.provider, resp.status, msg);
+      console.warn('[chat] LLM error:', cfg.provider, resp.status, msg);
       return res.status(resp.status).json({ error: 'chat_failed', message: msg });
     }
     const content = data?.choices?.[0]?.message?.content?.trim() ?? '';

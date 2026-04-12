@@ -5,7 +5,7 @@ import 'package:echo_reading/services/api_service.dart';
 import 'package:echo_reading/utils/audio_reader.dart';
 import 'transcription_service_platform.dart';
 
-/// 录音转写：后端 OpenAI Whisper 或 Android 本地 Whisper，需配置 OPENAI_API_KEY
+/// Post-recording transcription: server OpenAI Whisper (`/api/transcribe`). Web product; no on-device Whisper.
 class TranscriptionService {
   /// 转写：audioUrl 用于已上传的音频，audioPath 为 blob URL 或本地路径
   Future<String> transcribe({String? audioUrl, required String audioPath}) async {
@@ -25,7 +25,7 @@ class TranscriptionService {
     }
 
     throw Exception(
-      '识别失败。请配置后端 OPENAI_API_KEY（见 docs）。Web 端建议使用 Opus 录制。',
+      'Transcription failed. Configure OPENAI_API_KEY on the server (see docs). On Web, Opus recording is recommended.',
     );
   }
 

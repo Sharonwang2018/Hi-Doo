@@ -5,7 +5,7 @@ import 'dart:typed_data';
 Future<Uint8List> readAudioBytes(String path) async {
   final file = File(path);
   if (!await file.exists()) {
-    throw Exception('录音文件不存在');
+    throw Exception('Recording file not found');
   }
   return file.readAsBytes();
 }

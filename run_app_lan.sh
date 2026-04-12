@@ -3,6 +3,8 @@
 # 手机与电脑同一 WiFi，浏览器打开 http://本机IP:8082
 
 cd "$(dirname "$0")"
+# shellcheck source=scripts/load_supabase_flutter_env.sh
+. ./scripts/load_supabase_flutter_env.sh
 
 echo "📱 构建中，完成后手机访问: http://10.0.0.138:8082"
 echo ""

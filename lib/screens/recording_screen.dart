@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
+
 import 'package:echo_reading/env_config.dart';
 import 'package:echo_reading/services/api_auth_service.dart';
 import 'package:echo_reading/services/api_service.dart';
@@ -8,6 +9,8 @@ import 'package:echo_reading/utils/recording_path.dart';
 import 'package:echo_reading/utils/upload_audio.dart';
 import 'package:echo_reading/screens/retelling_complete_screen.dart';
 import 'package:echo_reading/services/ai_feedback_service.dart';
+import 'package:echo_reading/services/post_save_rewards.dart';
+import 'package:echo_reading/widgets/streak_celebration_overlay.dart';
 import 'package:echo_reading/services/page_tts_audio_impl_stub.dart'
     if (dart.library.html) 'package:echo_reading/services/page_tts_audio_impl_web.dart' as tts_audio;
 import 'package:echo_reading/services/page_tts_service.dart';
@@ -15,6 +18,7 @@ import 'package:echo_reading/services/retelling_intro_prompts.dart';
 import 'package:echo_reading/services/tip_donation_trigger.dart';
 import 'package:echo_reading/services/transcription_service.dart';
 import 'package:echo_reading/widgets/responsive_layout.dart';
+import 'package:echo_reading/widgets/story_structure_scaffold_row.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:record/record.dart';
@@ -29,16 +33,42 @@ class RecordingScreen extends StatefulWidget {
     required this.bookId,
     required this.summary,
     this.bookTitle,
+    this.bookCoverUrl,
     this.language,
     this.childAgeBand,
+    this.comprehensionCoachIntro,
+    this.comprehensionCentralPrompt,
+    this.comprehensionStructureLabels,
+    this.comprehensionRetellingHints,
+    this.sessionTypeForLog = 'retelling',
+    this.combinedQuizSnapshot,
+    this.showCoachIntroCard = true,
   });
 
   final String bookId;
   final String summary;
   final String? bookTitle;
+  final String? bookCoverUrl;
   final String? language;
   /// 年龄档：preschool / primary / 不传即 general，用于引导语多维题库
   final String? childAgeBand;
+
+  /// When set (from [BookComprehensionService]), replaces random intro; paired with [comprehensionRetellingHints].
+  final String? comprehensionCoachIntro;
+  /// One main storytelling question (Master Storyteller); enables simplified child-friendly layout.
+  final String? comprehensionCentralPrompt;
+  /// Four labels for the First → Finally scaffold row (defaults applied in UI if null/short).
+  final List<String>? comprehensionStructureLabels;
+  final List<String>? comprehensionRetellingHints;
+
+  /// `retelling` (default), `storyteller_challenge`, or `combined_challenge`.
+  final String sessionTypeForLog;
+
+  /// When non-null, merged into [ai_feedback] after listener response (Both mode).
+  final Map<String, dynamic>? combinedQuizSnapshot;
+
+  /// When false, hides the top intro card (e.g. after AI-miss dialog; user already saw that copy).
+  final bool showCoachIntroCard;
 
   @override
   State<RecordingScreen> createState() => _RecordingScreenState();
@@ -57,13 +87,14 @@ class _RecordingScreenState extends State<RecordingScreen> {
 
   String? _audioPath;
   String? _transcript;
-  String _language = 'zh';
+  String _language = 'en';
 
   bool _recording = false;
   bool _processing = false;
   bool _usedOpusEncoder = false;
   bool _introPlayed = false;
   bool _isPlayingIntro = false;
+  bool _isPlayingLegacyHints = false;
   bool _aiReviewing = false;
 
   int _seconds = 0;
@@ -73,11 +104,13 @@ class _RecordingScreenState extends State<RecordingScreen> {
   @override
   void initState() {
     super.initState();
-    _language = widget.language ?? 'zh';
+    _language = 'en';
     _pickedPromptIndex = Random().nextInt(RetellingIntroPrompts.professionalPrompts.length);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       // iOS Safari：进页自动播 TTS 无用户手势，豆包 MP3 无法播放；仅原生自动播引导语
-      if (mounted && !kIsWeb) _playIntroIfNeeded();
+      if (!mounted || kIsWeb) return;
+      final hasCentral = widget.comprehensionCentralPrompt?.trim().isNotEmpty == true;
+      if (widget.showCoachIntroCard || hasCentral) _playIntroIfNeeded();
     });
   }
 
@@ -93,9 +126,42 @@ class _RecordingScreenState extends State<RecordingScreen> {
     super.dispose();
   }
 
+  bool get _useSimplifiedStorytellerLayout {
+    final p = widget.comprehensionCentralPrompt?.trim();
+    return p != null && p.isNotEmpty;
+  }
+
+  List<String> get _structureLabels {
+    final l = widget.comprehensionStructureLabels;
+    if (l != null && l.length == 4) return l;
+    return const ['First', 'Next', 'Then', 'Finally'];
+  }
+
   String _introPhraseFor(String lang) {
-    final p = RetellingIntroPrompts.professionalPrompts[_pickedPromptIndex];
-    return lang == 'en' ? p.en : p.zh;
+    final central = widget.comprehensionCentralPrompt?.trim();
+    if (central != null && central.isNotEmpty) return central;
+    final ai = widget.comprehensionCoachIntro?.trim();
+    if (ai != null && ai.isNotEmpty) return ai;
+    return RetellingIntroPrompts.professionalPrompts[_pickedPromptIndex];
+  }
+
+  String _summaryForListenerFeedback() {
+    var s = widget.summary;
+    final central = widget.comprehensionCentralPrompt?.trim();
+    if (central != null && central.isNotEmpty) {
+      s =
+          '$s\n\nStorytelling prompt: $central\nStructure: ${_structureLabels.join(' → ')}';
+      final extra = widget.comprehensionRetellingHints;
+      if (extra != null && extra.isNotEmpty) {
+        s = '$s\n\nExtra cues: ${extra.join(' | ')}';
+      }
+    } else {
+      final hints = widget.comprehensionRetellingHints;
+      if (hints != null && hints.isNotEmpty) {
+        s = '$s\n\nRetelling prompts the child saw: ${hints.join(' | ')}';
+      }
+    }
+    return s;
   }
 
   Future<void> _playIntroContent() async {
@@ -130,7 +196,32 @@ class _RecordingScreenState extends State<RecordingScreen> {
         if (mounted) {
           setState(() => _isPlayingIntro = false);
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('播放失败：$e')),
+            SnackBar(content: Text('Playback failed: $e')),
+          );
+        }
+      },
+    );
+  }
+
+  void _playLegacyHintsTts() {
+    final hints = widget.comprehensionRetellingHints;
+    if (hints == null || hints.isEmpty || _isPlayingLegacyHints) return;
+    final text = 'Prompts for your story. ${hints.join(' ')}';
+    if (kIsWeb) {
+      tts_audio.unlockAudioContextSync();
+    }
+    setState(() => _isPlayingLegacyHints = true);
+    _ttsService.speakDoubaoFromUserGesture(
+      text,
+      languageHint: _language,
+      onComplete: () {
+        if (mounted) setState(() => _isPlayingLegacyHints = false);
+      },
+      onError: (e) {
+        if (mounted) {
+          setState(() => _isPlayingLegacyHints = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Playback failed: $e')),
           );
         }
       },
@@ -150,7 +241,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
         if (!mounted) return;
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('请先授予麦克风权限')));
+        ).showSnackBar(const SnackBar(content: Text('Microphone permission is required.')));
         return;
       }
 
@@ -226,7 +317,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
     } catch (e, st) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('录音启动失败：$e')),
+        SnackBar(content: Text('Could not start recording: $e')),
       );
       debugPrint('_startRecording error: $e\n$st');
     }
@@ -260,16 +351,17 @@ class _RecordingScreenState extends State<RecordingScreen> {
       });
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('录音失败，请重试')));
+      ).showSnackBar(const SnackBar(content: Text('Recording failed. Try again.')));
       return;
     }
 
     String? comment;
+    String? logId;
     var showDonationTip = false;
     try {
-      final isRealUser = EnvConfig.isConfigured && await _hasCloudBaseUser();
+      logId = null;
+      final isRealUser = EnvConfig.isConfigured && await ApiAuthService.isRealUser;
       String transcript = _speechTranscript.trim();
-      String? logId;
 
       if (transcript.isEmpty) {
         try {
@@ -290,7 +382,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
             logId = await _saveReadLog(audioUrl: audioUrl, transcript: transcript);
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('识别未完成，录音已保存。')),
+                const SnackBar(content: Text('Transcription pending; your recording was saved.')),
               );
             }
           }
@@ -318,13 +410,22 @@ class _RecordingScreenState extends State<RecordingScreen> {
         try {
           final feedback = await AiFeedbackService.generate(
             transcript: transcript,
-            summary: widget.summary,
+            summary: _summaryForListenerFeedback(),
             questions: const [],
             languageHint: _language,
           );
           comment = feedback['comment'] as String?;
+          final snapshot = widget.combinedQuizSnapshot;
+          final toStore = snapshot != null && snapshot.isNotEmpty
+              ? <String, dynamic>{
+                  'challenge_type': 'combined_challenge',
+                  'quiz_ai_plan': snapshot,
+                  'listener_comment': feedback['comment'],
+                  'logic_score': feedback['logic_score'],
+                }
+              : feedback;
           unawaited(
-            ApiService.updateReadLogAiFeedback(logId, jsonEncode(feedback)).catchError((Object e) {
+            ApiService.updateReadLogAiFeedback(logId, jsonEncode(toStore)).catchError((Object e) {
               debugPrint('updateReadLogAiFeedback: $e');
             }),
           );
@@ -332,9 +433,9 @@ class _RecordingScreenState extends State<RecordingScreen> {
           if (mounted) {
             final msg = e is Exception
                 ? e.toString().replaceFirst('Exception: ', '')
-                : '请检查网络与 api/.env 中 ARK_* 或 OPENROUTER_API_KEY';
+                : 'Check your connection and GROQ_API_KEY in api/.env';
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('AI 点评失败：$msg'), duration: const Duration(seconds: 5)),
+              SnackBar(content: Text('Listener reply failed: $msg'), duration: const Duration(seconds: 5)),
             );
           }
         }
@@ -347,11 +448,11 @@ class _RecordingScreenState extends State<RecordingScreen> {
         }
       } else if (transcript.trim().isEmpty && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('未识别到复述内容，可重录或登录后获得 AI 老师批阅')),
+          const SnackBar(content: Text('No speech detected. Record again, or sign in for AI listener feedback.')),
         );
       } else if (!isRealUser && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('登录后录音可获得 AI 老师批阅')),
+          const SnackBar(content: Text('Sign in to get AI listener feedback on your retelling.')),
         );
       }
 
@@ -359,13 +460,21 @@ class _RecordingScreenState extends State<RecordingScreen> {
       if (!mounted) return;
       if (comment == null || comment.isEmpty) {
         try {
-          await _ttsService.speak('Hi-Doo！你讲得真棒！');
+          await _ttsService.speak('Hi-Doo—you did a wonderful job!');
         } catch (_) {}
         if (!mounted) return;
         try {
-          const closing = '今天的故事讲得真好，下次再来一起玩～';
+          const closing = 'Great storytelling! Come back soon for another book.';
           await _ttsService.speak(closing);
         } catch (_) {}
+      }
+      if (!mounted) return;
+      int? starsEarned;
+      if (logId != null) {
+        final rewards = await PostSaveRewards.resolve(entryIsLogOnly: false);
+        starsEarned = rewards.starsEarned > 0 ? rewards.starsEarned : null;
+        if (!mounted) return;
+        await maybeShowStreakCelebration(context, rewards.streak);
       }
       if (!mounted) return;
       await Navigator.of(context).pushReplacement(
@@ -373,22 +482,36 @@ class _RecordingScreenState extends State<RecordingScreen> {
           builder: (_) => RetellingCompleteScreen(
             comment: comment,
             bookTitle: widget.bookTitle,
+            bookCoverUrl: widget.bookCoverUrl,
             showDonationTip: showDonationTip,
+            starsEarned: starsEarned,
           ),
         ),
       );
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('处理失败：$error')),
+        SnackBar(content: Text('Something went wrong: $error')),
       );
       if (mounted) {
+        int? starsEarned;
+        if (logId != null) {
+          try {
+            final rewards = await PostSaveRewards.resolve(entryIsLogOnly: false);
+            starsEarned = rewards.starsEarned > 0 ? rewards.starsEarned : null;
+            if (!mounted) return;
+            await maybeShowStreakCelebration(context, rewards.streak);
+          } catch (_) {}
+        }
+        if (!mounted) return;
         await Navigator.of(context).pushReplacement(
           MaterialPageRoute<void>(
             builder: (_) => RetellingCompleteScreen(
               comment: comment,
               bookTitle: widget.bookTitle,
+              bookCoverUrl: widget.bookCoverUrl,
               showDonationTip: showDonationTip,
+              starsEarned: starsEarned,
             ),
           ),
         );
@@ -422,21 +545,12 @@ class _RecordingScreenState extends State<RecordingScreen> {
     );
   }
 
-  Future<bool> _hasCloudBaseUser() async {
-    try {
-      final userInfo = await ApiAuthService.getUserInfo();
-      return userInfo != null && userInfo.uuid.isNotEmpty;
-    } catch (_) {
-      return false;
-    }
-  }
-
   Future<String> _uploadToCloudBase(String pathOrBlobUrl) async {
     final userInfo = await ApiAuthService.getUserInfo();
-    if (userInfo == null) throw Exception('请先登录。');
+    if (userInfo == null) throw Exception('Please sign in.');
     final uid = userInfo.uuid;
     if (uid.isEmpty) {
-      throw Exception('请先登录。');
+      throw Exception('Please sign in.');
     }
 
     final ext = _usedOpusEncoder ? 'webm' : 'm4a';
@@ -457,14 +571,14 @@ class _RecordingScreenState extends State<RecordingScreen> {
   }) async {
     final userInfo = await ApiAuthService.getUserInfo();
     if (userInfo == null || userInfo.uuid.isEmpty) {
-      throw Exception('请先登录。');
+      throw Exception('Please sign in.');
     }
 
     return ApiService.createReadLog(
       bookId: widget.bookId,
       audioUrl: audioUrl,
       transcript: transcript,
-      sessionType: 'retelling',
+      sessionType: widget.sessionTypeForLog,
       language: _language,
     );
   }
@@ -472,7 +586,9 @@ class _RecordingScreenState extends State<RecordingScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('自由复述')),
+      appBar: AppBar(
+        title: const Text('🗣️ The Master Storyteller'),
+      ),
       body: Stack(
         children: [
           SafeArea(
@@ -483,32 +599,106 @@ class _RecordingScreenState extends State<RecordingScreen> {
             child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('Hi-Doo想听你说...', style: Theme.of(context).textTheme.titleSmall),
-              const SizedBox(height: 6),
-              SegmentedButton<String>(
-                segments: const [
-                  ButtonSegment(value: 'zh', label: Text('中文')),
-                  ButtonSegment(value: 'en', label: Text('English')),
+              if (_useSimplifiedStorytellerLayout) ...[
+                Text(
+                  "Let's tell the story of ${(widget.bookTitle != null && widget.bookTitle!.trim().isNotEmpty) ? widget.bookTitle!.trim() : 'this book'} together!",
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        height: 1.35,
+                      ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 26),
+                _IntroCard(
+                  introText: widget.comprehensionCentralPrompt!.trim(),
+                  isPlaying: _isPlayingIntro,
+                  onPlay: _playIntroPhrase,
+                  playLabel: 'Play',
+                ),
+                const SizedBox(height: 28),
+                Text(
+                  'Tell your story in order',
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w600,
+                      ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 20),
+                StoryStructureScaffoldRow(labels: _structureLabels),
+                const SizedBox(height: 40),
+              ] else ...[
+                Text(
+                  'We can’t wait to hear your story…',
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+                const SizedBox(height: 12),
+                if (widget.showCoachIntroCard)
+                  _IntroCard(
+                    introText: _introPhraseFor(_language),
+                    isPlaying: _isPlayingIntro,
+                    onPlay: _playIntroPhrase,
+                  ),
+                if (widget.comprehensionRetellingHints != null &&
+                    widget.comprehensionRetellingHints!.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Prompts for your story',
+                            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                          ),
+                          const SizedBox(height: 8),
+                          for (final h in widget.comprehensionRetellingHints!)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 6),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Icon(
+                                    Icons.lightbulb_outline_rounded,
+                                    size: 20,
+                                    color: Theme.of(context).colorScheme.primary,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(child: Text(h)),
+                                ],
+                              ),
+                            ),
+                          const SizedBox(height: 10),
+                          FilledButton.tonalIcon(
+                            onPressed: _isPlayingLegacyHints ? null : _playLegacyHintsTts,
+                            style: FilledButton.styleFrom(
+                              backgroundColor: Colors.orange.shade50,
+                              foregroundColor: Colors.orange.shade800,
+                            ),
+                            icon: _isPlayingLegacyHints
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  )
+                                : const Icon(Icons.volume_up_rounded, size: 20),
+                            label: Text(_isPlayingLegacyHints ? 'Playing…' : 'Play prompts'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ],
-                selected: {_language},
-                onSelectionChanged: (s) {
-                  setState(() {
-                    _language = s.single;
-                    _introPlayed = false;
-                  });
-                },
-              ),
-              const SizedBox(height: 12),
-              _IntroCard(
-                introText: _introPhraseFor(_language),
-                isPlaying: _isPlayingIntro,
-                onPlay: _playIntroPhrase,
-              ),
-              const SizedBox(height: 16),
+                const SizedBox(height: 16),
+              ],
               _WaveformCard(
                 isRecording: _recording,
                 bars: _waveBars,
                 elapsedSeconds: _seconds,
+                emphasizeReady: _useSimplifiedStorytellerLayout,
               ),
               const SizedBox(height: 16),
               FilledButton.icon(
@@ -526,10 +716,10 @@ class _RecordingScreenState extends State<RecordingScreen> {
                     : Icon(_recording ? Icons.stop_rounded : Icons.mic_rounded),
                 label: Text(
                   _processing
-                      ? '处理中...'
+                      ? 'Working…'
                       : _recording
-                      ? '结束录音'
-                      : '开始录音',
+                      ? 'Stop recording'
+                      : 'Start recording',
                 ),
               ),
               const SizedBox(height: 12),
@@ -542,13 +732,13 @@ class _RecordingScreenState extends State<RecordingScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          '边说边识别',
+                          'Live captions (web)',
                           style: Theme.of(context).textTheme.titleSmall?.copyWith(
                             color: Theme.of(context).colorScheme.primary,
                           ),
                         ),
                         const SizedBox(height: 8),
-                        Text(_speechTranscript.isEmpty ? '聆听中...' : _speechTranscript),
+                        Text(_speechTranscript.isEmpty ? 'Listening…' : _speechTranscript),
                       ],
                     ),
                   ),
@@ -557,7 +747,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
               ],
               if (_audioPath != null)
                 Text(
-                  '录音文件：$_audioPath',
+                  'Recording file: $_audioPath',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               if (_transcript != null) ...[
@@ -569,7 +759,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          '识别结果',
+                          'What we heard',
                           style: TextStyle(fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(height: 8),
@@ -603,7 +793,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
                           ),
                           const SizedBox(height: 16),
                           Text(
-                            'AI老师正在审阅...',
+                            'Your listener friend is thinking…',
                             style: Theme.of(context).textTheme.titleMedium,
                           ),
                         ],
@@ -664,11 +854,21 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Row(
+      title: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.school_rounded, color: Colors.amber),
-          SizedBox(width: 8),
-          Text('老师批阅'),
+          const Icon(Icons.record_voice_over_rounded, color: Colors.amber),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'A curious listener says…',
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+              maxLines: 2,
+              softWrap: true,
+            ),
+          ),
         ],
       ),
       content: SingleChildScrollView(
@@ -680,7 +880,7 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
             if (kIsWeb) ...[
               const SizedBox(height: 10),
               Text(
-                '在浏览器中请点击下方按钮收听语音。',
+                'On the web, tap the button below to hear it read aloud.',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
@@ -709,7 +909,7 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.volume_up_rounded),
-              label: Text(_playing ? '播放中...' : '听老师点评'),
+              label: Text(_playing ? 'Playing…' : 'Hear the reply'),
             ),
           ],
         ),
@@ -717,7 +917,7 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('知道了'),
+          child: const Text('Got it'),
         ),
       ],
     );
@@ -729,11 +929,13 @@ class _IntroCard extends StatelessWidget {
     required this.introText,
     required this.isPlaying,
     required this.onPlay,
+    this.playLabel,
   });
 
   final String introText;
   final bool isPlaying;
   final VoidCallback onPlay;
+  final String? playLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -765,7 +967,7 @@ class _IntroCard extends StatelessWidget {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.volume_up_rounded, size: 20),
-              label: Text(isPlaying ? '播放中...' : '播放引导语'),
+              label: Text(isPlaying ? 'Playing…' : (playLabel ?? 'Play prompt')),
             ),
           ],
         ),
@@ -779,11 +981,13 @@ class _WaveformCard extends StatelessWidget {
     required this.isRecording,
     required this.bars,
     required this.elapsedSeconds,
+    this.emphasizeReady = false,
   });
 
   final bool isRecording;
   final List<double> bars;
   final int elapsedSeconds;
+  final bool emphasizeReady;
 
   String get _timeLabel {
     final minute = (elapsedSeconds ~/ 60).toString().padLeft(2, '0');
@@ -794,8 +998,10 @@ class _WaveformCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
+      elevation: emphasizeReady ? 1.5 : 0,
+      margin: emphasizeReady ? const EdgeInsets.only(top: 4) : EdgeInsets.zero,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 14, 14, 18),
+        padding: EdgeInsets.fromLTRB(14, emphasizeReady ? 20 : 14, 14, emphasizeReady ? 22 : 18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -803,15 +1009,25 @@ class _WaveformCard extends StatelessWidget {
               children: [
                 Icon(
                   Icons.graphic_eq_rounded,
+                  size: emphasizeReady ? 26 : 24,
                   color: isRecording
                       ? Theme.of(context).colorScheme.primary
-                      : Theme.of(context).colorScheme.outline,
+                      : Theme.of(context).colorScheme.primary.withValues(alpha: 0.85),
                 ),
-                const SizedBox(width: 8),
-                Text(isRecording ? '正在录音 $_timeLabel' : '等待开始录音'),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    isRecording ? 'Recording $_timeLabel' : 'Ready when you are',
+                    style: emphasizeReady
+                        ? Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w800,
+                            )
+                        : null,
+                  ),
+                ),
               ],
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: emphasizeReady ? 16 : 12),
             SizedBox(
               height: 64,
               child: Row(

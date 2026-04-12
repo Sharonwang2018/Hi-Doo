@@ -15,7 +15,9 @@ class ApiService {
 
   static void _checkConfigured() {
     if (!EnvConfig.isConfigured) {
-      throw Exception('API 未配置。请设置 API_BASE_URL（如 http://localhost:3000）');
+      throw Exception(
+        'API is not configured. Set API_BASE_URL (e.g. http://localhost:3000).',
+      );
     }
   }
 
@@ -59,7 +61,7 @@ class ApiService {
     );
     final res = await http.get(uri, headers: await _headers(withAuth: false));
     if (res.statusCode == 404) return null;
-    if (res.statusCode != 200) throw Exception('查询失败: ${res.body}');
+    if (res.statusCode != 200) throw Exception('Lookup failed: ${res.body}');
     final json = jsonDecode(res.body) as Map<String, dynamic>;
     return Book(
       id: json['id'] as String,
@@ -117,7 +119,7 @@ class ApiService {
       }),
     );
     if (res.statusCode != 200 && res.statusCode != 201) {
-      throw Exception('保存失败: ${res.body}');
+      throw Exception('Save failed: ${res.body}');
     }
     final json = jsonDecode(res.body) as Map<String, dynamic>;
     return Book(
@@ -155,11 +157,33 @@ class ApiService {
 
     var res = await post();
     if (_isUnauthorized(res)) {
+      if (ApiAuthService.isUserSessionStale401(res)) {
+        final m = responseErrorMessage(res);
+        throw Exception(
+          m.isNotEmpty
+              ? m
+              : 'Could not save: server rejected this user id (check read_logs FK → auth.users or profiles).',
+        );
+      }
       await ApiAuthService.recoverSessionAfterUnauthorized();
       res = await post();
     }
     if (res.statusCode != 200 && res.statusCode != 201) {
-      throw Exception('保存失败: ${res.body}');
+      if (res.statusCode == 401) {
+        final detail = responseErrorMessage(res);
+        throw Exception(
+          detail.isNotEmpty
+              ? 'Could not save your reading. $detail'
+              : 'Please sign in again to save your reading.',
+        );
+      }
+      if (res.statusCode == 403) {
+        final msg = ApiService.responseErrorMessage(res);
+        throw Exception(
+          msg.isNotEmpty ? msg : 'Sign in with email or Google to save your reading journey.',
+        );
+      }
+      throw Exception('Save failed: ${res.body}');
     }
     final json = jsonDecode(res.body) as Map<String, dynamic>;
     return json['id'] as String;
@@ -179,11 +203,17 @@ class ApiService {
 
     var res = await patch();
     if (_isUnauthorized(res)) {
+      if (ApiAuthService.isUserSessionStale401(res)) {
+        final m = responseErrorMessage(res);
+        throw Exception(
+          m.isNotEmpty ? m : 'Could not update log: account not linked in database.',
+        );
+      }
       await ApiAuthService.recoverSessionAfterUnauthorized();
       res = await patch();
     }
     if (res.statusCode != 200) {
-      throw Exception('更新失败: ${res.body}');
+      throw Exception('Update failed: ${res.body}');
     }
   }
 
@@ -218,28 +248,44 @@ class ApiService {
         )
         .timeout(const Duration(seconds: 35));
     if (res.statusCode != 200) {
-      throw Exception('Chat 失败: ${ApiService.responseErrorMessage(res)}');
+      throw Exception('Chat failed: ${ApiService.responseErrorMessage(res)}');
     }
     final json = jsonDecode(res.body) as Map<String, dynamic>;
     return (json['content'] as String? ?? '').trim();
   }
 
-  /// 通过后端 OpenRouter 视觉模型识别图片文字（拍照读页）
-  static Future<String> visionFromImage(String imageBase64) async {
+  /// Groq-backed retelling listener feedback (`/api/assessment`).
+  static Future<Map<String, dynamic>> postAssessment({
+    required String kind,
+    String? transcript,
+    String? summary,
+    String? bookTitle,
+    String? bookAuthor,
+    String? challengeMode,
+    double temperature = 0.55,
+  }) async {
     _checkConfigured();
-    final uri = Uri.parse('${EnvConfig.apiBaseUrl}/api/vision');
+    final uri = Uri.parse('${EnvConfig.apiBaseUrl}/api/assessment');
+    final body = <String, dynamic>{
+      'kind': kind,
+      'temperature': temperature,
+      if (transcript != null && transcript.isNotEmpty) 'transcript': transcript,
+      if (summary != null) 'summary': summary,
+      if (bookTitle != null && bookTitle.trim().isNotEmpty) 'bookTitle': bookTitle.trim(),
+      if (bookAuthor != null && bookAuthor.trim().isNotEmpty) 'bookAuthor': bookAuthor.trim(),
+      if (challengeMode != null && challengeMode.trim().isNotEmpty) 'challengeMode': challengeMode.trim(),
+    };
     final res = await http
         .post(
           uri,
           headers: await _headers(withAuth: true),
-          body: jsonEncode({'image': imageBase64}),
+          body: jsonEncode(body),
         )
-        .timeout(const Duration(seconds: 60));
+        .timeout(const Duration(seconds: 45));
     if (res.statusCode != 200) {
-      throw Exception('视觉识别失败: ${ApiService.responseErrorMessage(res)}');
+      throw Exception('Assessment failed: ${ApiService.responseErrorMessage(res)}');
     }
-    final json = jsonDecode(res.body) as Map<String, dynamic>;
-    return (json['text'] as String? ?? '').trim();
+    return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
   /// 通过后端 OpenAI Whisper 转写音频
@@ -261,7 +307,7 @@ class ApiService {
         )
         .timeout(const Duration(seconds: 60));
     if (res.statusCode != 200) {
-      throw Exception('转写失败: ${ApiService.responseErrorMessage(res)}');
+      throw Exception('Transcription failed: ${ApiService.responseErrorMessage(res)}');
     }
     final json = jsonDecode(res.body) as Map<String, dynamic>;
     return (json['text'] as String? ?? '').trim();
@@ -277,16 +323,48 @@ class ApiService {
 
     var res = await getLogs();
     if (_isUnauthorized(res)) {
+      if (ApiAuthService.isUserSessionStale401(res)) {
+        final m = responseErrorMessage(res);
+        throw Exception(
+          m.isNotEmpty ? m : 'Could not load logs: account not linked in database.',
+        );
+      }
       await ApiAuthService.recoverSessionAfterUnauthorized();
       res = await getLogs();
     }
     if (res.statusCode != 200) {
-      throw Exception('获取阅读记录失败: ${res.body}');
+      throw Exception('Could not load reading log: ${res.body}');
     }
 
     final jsonList = jsonDecode(res.body) as List<dynamic>;
     return jsonList
         .map((e) => ReadLogWithBook.fromJson(e as Map<String, dynamic>))
         .toList();
+  }
+
+  /// Report bad quiz / MCQ content (`POST /api/quiz-reports`).
+  static Future<void> reportQuizContentIssue({
+    required String bookId,
+    required int questionId,
+    bool badContent = true,
+  }) async {
+    _checkConfigured();
+    final uri = Uri.parse('${EnvConfig.apiBaseUrl}/api/quiz-reports');
+    final res = await http
+        .post(
+          uri,
+          headers: await _headers(withAuth: true),
+          body: jsonEncode({
+            'book_id': bookId,
+            'question_id': questionId,
+            'bad_content': badContent,
+          }),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (res.statusCode != 200) {
+      throw Exception(
+        'Report failed: ${ApiService.responseErrorMessage(res)}',
+      );
+    }
   }
 }

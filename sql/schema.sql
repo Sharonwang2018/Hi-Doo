@@ -41,9 +41,11 @@ create table if not exists read_logs (
   ai_feedback text,
   language text,
   session_type text not null default 'retelling',
+  library_partner_name text,
   created_at timestamptz not null default timezone('utc', now())
 );
 
 create index if not exists read_logs_user_id_idx on read_logs (user_id);
 create index if not exists read_logs_book_id_idx on read_logs (book_id);
 create index if not exists read_logs_created_at_idx on read_logs (created_at desc);
+create index if not exists read_logs_library_partner_idx on read_logs (library_partner_name) where library_partner_name is not null;

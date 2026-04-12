@@ -8,17 +8,17 @@ import { fileURLToPath } from 'url';
 import cors from 'cors';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-import authRoutes from './routes/auth.js';
 import booksRoutes from './routes/books.js';
 import readLogsRoutes from './routes/read_logs.js';
 import uploadRoutes from './routes/upload.js';
 import ttsRoutes from './routes/tts.js';
 import chatRoutes from './routes/chat.js';
-import visionRoutes from './routes/vision.js';
+import assessmentRoutes from './routes/assessment.js';
 import transcribeRoutes from './routes/transcribe.js';
 import bookLookupRoutes from './routes/book_lookup.js';
+import quizReportsRoutes from './routes/quiz_reports.js';
 import { attachWsToServer } from './routes/asr_stream.js';
-import { resolveChatProvider, resolveVisionProvider } from './lib/llm_providers.js';
+import { resolveChatProvider } from './lib/llm_providers.js';
 import { quotaEnabled } from './lib/usage_quota.js';
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, 'uploads');
@@ -28,28 +28,33 @@ const WEB_BUILD = path.join(__dirname, '..', 'build', 'web');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+if (!process.env.SUPABASE_JWT_SECRET?.trim()) {
+  console.warn(
+    '⚠️  SUPABASE_JWT_SECRET missing — /read-logs, /upload, etc. return 503 until set (Supabase Dashboard → API → JWT Secret).',
+  );
+}
+
 app.use(cors());
-// JSON 体积上限：OCR/vision 会传 base64 图片，默认 100kb 很容易触发 request entity too large
-app.use(express.json({ limit: '20mb' }));
+app.use(express.json({ limit: '5mb' }));
 
 // Request logging (skip static assets for readability)
 app.use((req, res, next) => {
-  if (!req.path.startsWith('/auth') && !req.path.startsWith('/books') && !req.path.startsWith('/read-logs') && !req.path.startsWith('/upload') && !req.path.startsWith('/api/') && req.path !== '/health') return next();
+  if (!req.path.startsWith('/books') && !req.path.startsWith('/read-logs') && !req.path.startsWith('/upload') && !req.path.startsWith('/api/') && req.path !== '/health') return next();
   const t = new Date().toISOString();
   console.log(`[${t}] ${req.method} ${req.path}`);
   next();
 });
 
 // API routes (must be before static to avoid conflict)
-app.use('/auth', authRoutes);
 app.use('/books', booksRoutes);
 app.use('/read-logs', readLogsRoutes);
 app.use('/upload', uploadRoutes);
 app.use('/api/tts', ttsRoutes);
 app.use('/api/chat', chatRoutes);
-app.use('/api/vision', visionRoutes);
+app.use('/api/assessment', assessmentRoutes);
 app.use('/api/transcribe', transcribeRoutes);
 app.use('/api/book-lookup', bookLookupRoutes);
+app.use('/api/quiz-reports', quizReportsRoutes);
 // Serve uploaded audio files
 if (!fs.existsSync(AUDIO_DIR)) fs.mkdirSync(AUDIO_DIR, { recursive: true });
 app.use('/audio', express.static(AUDIO_DIR));
@@ -58,33 +63,53 @@ app.get('/health', (req, res) => {
   res.json({ ok: true });
 });
 
-// 配置检查（不暴露 key，仅用于排查）
+// Config probe (no secrets exposed)
 app.get('/api/status', (req, res) => {
   const chat = resolveChatProvider();
-  const vision = resolveVisionProvider();
+  const groqKey = !!(process.env.GROQ_API_KEY && process.env.GROQ_API_KEY.trim().length > 0);
   res.json({
     ark: !!(process.env.ARK_API_KEY && process.env.ARK_API_KEY.length),
     openrouter: !!(process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_API_KEY.length),
+    groq: groqKey,
+    groq_assessment: groqKey,
     llm_chat: chat?.provider ?? null,
-    llm_vision: vision?.provider ?? null,
     openai: !!(process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY.length > 0),
   });
 });
 
 app.get('/api/asr-stream-ready', (req, res) => {
-  // 流式 ASR 已移除豆包，仅支持浏览器语音识别
+  // Streaming ASR not wired; use browser speech recognition where available.
   res.json({ ok: false });
 });
 
 // Serve Flutter web build (UI + API from same origin = Device A always reaches backend)
-if (fs.existsSync(path.join(WEB_BUILD, 'index.html'))) {
-  app.use(express.static(WEB_BUILD));
-  app.get('*', (_req, res) => res.sendFile(path.join(WEB_BUILD, 'index.html')));
+const indexPath = path.join(WEB_BUILD, 'index.html');
+if (fs.existsSync(indexPath)) {
+  const indexStat = fs.statSync(indexPath);
+  console.log(
+    `Flutter UI: ${WEB_BUILD} (index.html ${indexStat.mtime.toISOString()}) — after Dart/UI edits run: flutter build web`,
+  );
+  app.use(
+    express.static(WEB_BUILD, {
+      setHeaders(res, filePath) {
+        const base = path.basename(filePath);
+        if (base === 'index.html' || base === 'flutter_bootstrap.js') {
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        }
+      },
+    }),
+  );
+  app.get('*', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.sendFile(indexPath);
+  });
+} else {
+  console.warn(`No Flutter bundle at ${WEB_BUILD} — run "flutter build web" from repo root, then restart.`);
 }
 
 app.use((err, req, res, next) => {
   console.error(err);
-  res.status(500).json({ error: 'internal_error', message: err.message || '服务器错误' });
+  res.status(500).json({ error: 'internal_error', message: err.message || 'Server error' });
 });
 
 const useHttps = process.env.HTTPS === '1' || process.env.HTTPS === 'true';
@@ -111,16 +136,14 @@ if (useHttps && fs.existsSync(keyPath) && fs.existsSync(certPath)) {
 server.listen(PORT, '0.0.0.0', () => {
   attachWsToServer(server);
   const chat = resolveChatProvider();
-  const vision = resolveVisionProvider();
   const publicBase = process.env.PUBLIC_BASE_URL?.trim();
   const displayUrl = publicBase
-    || (useHttps ? `https://10.0.0.138:${PORT}` : `http://10.0.0.138:${PORT}`);
-  console.log(`Hi-Doo at ${displayUrl}`);
-  console.log(`LLM 对话/点评: ${chat ? `${chat.provider} (${chat.model})` : '未配置'}`);
-  console.log(`LLM 拍照读页: ${vision ? `${vision.provider} (${vision.model})` : '未配置'}`);
+    || (useHttps ? `https://localhost:${PORT}` : `http://localhost:${PORT}`);
+  console.log(`Hi-Doo | Think & Retell → ${displayUrl}`);
+  console.log(`LLM chat/review: ${chat ? `${chat.provider} (${chat.model})` : 'not configured'}`);
   console.log(
     quotaEnabled()
-      ? 'API 配额: 已启用（vision/transcribe/tts/chat 按日计次，见 .env QUOTA_*）'
-      : 'API 配额: 已关闭（QUOTA_ENABLED=0）',
+      ? 'API quota: ON (set QUOTA_* limits in .env)'
+      : 'API quota: OFF (default; set QUOTA_ENABLED=1 to enable daily limits)',
   );
 });

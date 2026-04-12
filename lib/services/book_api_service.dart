@@ -52,7 +52,7 @@ class BookApiService {
       return await olF.timeout(
         _openLibraryProxyWait,
         onTimeout: () => throw TimeoutException(
-          '查询书目超时，请改用手动输入',
+          'Book lookup timed out. Try entering the title manually.',
           _openLibraryProxyWait,
         ),
       );
@@ -67,7 +67,7 @@ class BookApiService {
       _openLibraryTimeout,
       onTimeout: () {
         throw TimeoutException(
-          '查询书目超时（Open Library 可能无法访问），请改用手动输入',
+          'Book lookup timed out (Open Library may be unreachable). Try manual entry.',
           _openLibraryTimeout,
         );
       },

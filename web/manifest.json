@@ -1,11 +1,11 @@
 {
-    "name": "Hi-Doo 绘读",
+    "name": "Hi-Doo | Interactive Literacy Assistant",
     "short_name": "Hi-Doo",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#FF8C42",
     "theme_color": "#FF8C42",
-    "description": "会读，更会说 | Read it, Speak it.",
+    "description": "Beyond reading: Unlock their understanding.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

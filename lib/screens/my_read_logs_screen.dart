@@ -52,16 +52,22 @@ class _MyReadLogsScreenState extends State<MyReadLogsScreen> {
   }
 
   String _sessionLabel(ReadLog log) {
-    if (log.isSharedReading) return '亲子共读';
-    if (log.isPhotoReadPage) return '拍照读页';
-    return '复述';
+    if (log.isLogOnly) return 'Quick log';
+    if (log.isQuizChallenge) return 'Detail Detective';
+    if (log.isStorytellerChallenge) return 'Master Storyteller';
+    if (log.isCombinedChallenge) return 'Detective + Storyteller';
+    if (log.isComprehensionQuestions) return 'Earlier entry';
+    if (log.isSharedReading || log.sessionType == 'photo_read_page') {
+      return 'Earlier entry';
+    }
+    return 'Master Storyteller';
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('我的阅读记录'),
+        title: const Text('My Reading Journey'),
         actions: [
           IconButton(
             onPressed: _isLoading ? null : _load,
@@ -87,7 +93,7 @@ class _MyReadLogsScreenState extends State<MyReadLogsScreen> {
                         ),
                       )
                     : _logs.isEmpty
-                        ? const Center(child: Text('暂无阅读记录'))
+                        ? const Center(child: Text('No entries yet'))
                         : ListView.separated(
                             itemCount: _logs.length,
                             separatorBuilder: (_, __) =>
@@ -189,7 +195,7 @@ class _MyReadLogsScreenState extends State<MyReadLogsScreen> {
                                               const SizedBox(height: 10),
                                               Text(
                                                 preview.isEmpty
-                                                    ? '暂无识别内容'
+                                                    ? 'No transcript yet'
                                                     : preview,
                                                 maxLines: 3,
                                                 overflow:

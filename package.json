@@ -1,4 +1,9 @@
 {
+  "scripts": {
+    "vercel-build": "bash scripts/vercel_flutter_build.sh",
+    "dev": "npm run dev --prefix api",
+    "start": "npm start --prefix api"
+  },
   "devDependencies": {
     "favicons": "^7.2.0"
   }

@@ -8,7 +8,7 @@ class BooksService {
   Future<Book> upsertBook(BookLookupResult lookup) async {
     if (!EnvConfig.isConfigured) {
       throw Exception(
-        'API 未配置。请设置 API_BASE_URL（如 http://localhost:3000）',
+        'API is not configured. Set API_BASE_URL (e.g. http://localhost:3000).',
       );
     }
     return ApiService.upsertBook(lookup);

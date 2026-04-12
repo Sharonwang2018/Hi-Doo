@@ -12,13 +12,13 @@ Future<String> uploadAudioToCloudBase(
 }) async {
   if (!EnvConfig.isConfigured) {
     throw Exception(
-      'API 未配置。请设置 API_BASE_URL（如 http://localhost:3000）',
+      'API is not configured. Set API_BASE_URL (e.g. http://localhost:3000).',
     );
   }
 
   final file = File(pathOrBlobUrl);
   if (!await file.exists()) {
-    throw Exception('录音文件不存在');
+    throw Exception('Recording file not found');
   }
 
   return ApiService.uploadAudio(file, contentType: contentType);

@@ -2,132 +2,148 @@ import 'dart:convert';
 
 import 'package:echo_reading/env_config.dart';
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-const _tokenKey = 'echo_reading_jwt';
+/// [register] 在开启「Confirm email」时多为 [EmailRegisterResult.confirmEmailPending]（无 session）。
+enum EmailRegisterResult {
+  /// 已拿到 session，可直接进首页
+  signedIn,
 
+  /// 账号已创建，需邮箱内确认链接后再登录（Supabase Dashboard 可关闭 Confirm email 方便开发）
+  confirmEmailPending,
+}
+
+/// Supabase Auth：注册/登录；云存储需邮箱或 Google（不使用匿名会话）。
 class ApiAuthService {
   ApiAuthService._();
 
-  static String? _cachedToken;
+  static SupabaseClient get _client => Supabase.instance.client;
 
-  static Future<String?> getToken() => _token;
-
-  static Future<String?> get _token async {
-    if (_cachedToken != null) return _cachedToken;
-    final prefs = await SharedPreferences.getInstance();
-    _cachedToken = prefs.getString(_tokenKey);
-    return _cachedToken;
-  }
-
-  static Future<void> _saveToken(String token) async {
-    _cachedToken = token;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_tokenKey, token);
+  /// Supabase access token（Bearer），无会话时 null。
+  /// 若 access token 已过期（或距过期不足约 10s），先 [refreshSession]，避免首包带过期 JWT 导致 API 401 后被误 signOut。
+  static Future<String?> getToken() async {
+    if (!EnvConfig.hasSupabase) return null;
+    var session = _client.auth.currentSession;
+    if (session == null) return null;
+    if (session.isExpired) {
+      try {
+        await _client.auth.refreshSession();
+        session = _client.auth.currentSession;
+      } catch (_) {}
+    }
+    return session?.accessToken;
   }
 
   static Future<void> signOut() async {
-    _cachedToken = null;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_tokenKey);
+    if (!EnvConfig.hasSupabase) return;
+    await _client.auth.signOut();
   }
 
-  /// 本地 JWT 仍能解析，但服务端已不认（换 JWT_SECRET、过期等）时调用：清缓存并重新领访客 token。
-  static Future<void> recoverSessionAfterUnauthorized() async {
-    await signOut();
-    await signInAsGuest();
-  }
-
-  /// 解析 JWT payload 获取 userId、username
-  static Map<String, dynamic>? _decodePayload(String token) {
+  /// POST /read-logs 在 user_id 外键不满足时返回此错误；JWT 仍有效，不应 signOut。
+  static bool isUserSessionStale401(http.Response res) {
+    if (res.statusCode != 401) return false;
     try {
-      final parts = token.split('.');
-      if (parts.length != 3) return null;
-      final payload = parts[1];
-      final normalized = base64Url.normalize(payload);
-      final decoded = utf8.decode(base64Url.decode(normalized));
-      return jsonDecode(decoded) as Map<String, dynamic>?;
-    } catch (_) {
-      return null;
-    }
+      final j = jsonDecode(res.body);
+      if (j is Map && j['error'] == 'user_session_stale') return true;
+    } catch (_) {}
+    return false;
+  }
+
+  /// 401 后先刷新 access token；仅当刷新失败时再清除会话（避免误杀仍有效的登录）。
+  static Future<void> recoverSessionAfterUnauthorized() async {
+    if (!EnvConfig.hasSupabase) return;
+    try {
+      final refreshed = await _client.auth.refreshSession();
+      if (refreshed.session != null) return;
+    } catch (_) {}
+    await _client.auth.signOut();
   }
 
   static Future<ApiUserInfo?> getUserInfo() async {
-    final token = await _token;
-    if (token == null || token.isEmpty) return null;
-    final payload = _decodePayload(token);
-    if (payload == null) return null;
-    final userId = payload['userId'] as String? ?? payload['sub'] as String?;
-    final username = payload['username'] as String? ?? '';
-    if (userId == null || userId.isEmpty) return null;
-    return ApiUserInfo(uuid: userId, loginType: username.startsWith('guest_') ? 'ANONYMOUS' : 'CUSTOM', nickName: null, avatarUrl: null);
+    if (!EnvConfig.hasSupabase) return null;
+    final u = _client.auth.currentUser;
+    if (u == null) return null;
+    final anon = u.isAnonymous;
+    return ApiUserInfo(
+      uuid: u.id,
+      loginType: anon ? 'ANONYMOUS' : 'CUSTOM',
+      nickName: u.userMetadata?['name'] as String? ?? u.email,
+      avatarUrl: null,
+    );
   }
 
+  /// 已登录且非匿名（邮箱 / Google 等）
   static Future<bool> get isRealUser async {
     final info = await getUserInfo();
     if (info == null) return false;
     return info.loginType != 'ANONYMOUS' && info.uuid.isNotEmpty;
   }
 
-  static Future<String> register({required String username, required String password}) async {
-    final uri = Uri.parse('${EnvConfig.apiBaseUrl}/auth/register');
-    final res = await http.post(
-      uri,
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'username': username, 'password': password}),
-    );
-    final body = jsonDecode(res.body) as Map<String, dynamic>?;
-    if (res.statusCode != 200) {
-      throw AuthException(body?['message'] as String? ?? '注册失败');
+  /// 任意有效会话（含历史匿名 token；产品上不主动创建匿名）
+  static bool get hasSession =>
+      EnvConfig.hasSupabase && _client.auth.currentSession != null;
+
+  static Future<EmailRegisterResult> register({
+    required String email,
+    required String password,
+  }) async {
+    if (!EnvConfig.hasSupabase) {
+      throw AppAuthException('Supabase is not configured (SUPABASE_URL / SUPABASE_ANON_KEY).');
     }
-    final ticket = body?['ticket'] as String?;
-    if (ticket == null || ticket.isEmpty) throw AuthException('未获取到登录凭证');
-    await _saveToken(ticket);
-    return ticket;
+    final res = await _client.auth.signUp(email: email, password: password);
+    if (res.session != null) {
+      return EmailRegisterResult.signedIn;
+    }
+    if (res.user != null) {
+      return EmailRegisterResult.confirmEmailPending;
+    }
+    throw AppAuthException(
+      'Could not create account. If you already use this email, try Sign in.',
+    );
   }
 
-  static Future<String> login({required String username, required String password}) async {
-    final uri = Uri.parse('${EnvConfig.apiBaseUrl}/auth/login');
-    final res = await http.post(
-      uri,
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'username': username, 'password': password}),
-    );
-    final body = jsonDecode(res.body) as Map<String, dynamic>?;
-    if (res.statusCode != 200 && res.statusCode != 201) {
-      throw AuthException(body?['message'] as String? ?? '登录失败');
+  /// 浏览器内 OAuth（Web 为主）：完成后回到站点，由 Supabase 从 URL 恢复 session。
+  /// 原生 App 需另配 deep link 与 Dashboard Redirect URLs，参见 Supabase Flutter 文档。
+  static Future<bool> signInWithGoogle() async {
+    if (!EnvConfig.hasSupabase) {
+      throw AppAuthException('Supabase is not configured (SUPABASE_URL / SUPABASE_ANON_KEY).');
     }
-    final ticket = body?['ticket'] as String?;
-    if (ticket == null || ticket.isEmpty) throw AuthException('未获取到登录凭证');
-    await _saveToken(ticket);
-    return ticket;
+    return _client.auth.signInWithOAuth(OAuthProvider.google);
   }
 
-  /// 继续浏览（创建访客用户）
-  static Future<String> signInAsGuest() async {
-    final uri = Uri.parse('${EnvConfig.apiBaseUrl}/auth/guest');
-    final res = await http.post(uri, headers: {'Content-Type': 'application/json'});
-    final body = jsonDecode(res.body) as Map<String, dynamic>?;
-    if (res.statusCode != 200 && res.statusCode != 201) {
-      throw AuthException(body?['message'] as String? ?? '创建访客失败');
+  static Future<String> login({
+    required String email,
+    required String password,
+  }) async {
+    if (!EnvConfig.hasSupabase) {
+      throw AppAuthException('Supabase is not configured (SUPABASE_URL / SUPABASE_ANON_KEY).');
     }
-    final ticket = body?['ticket'] as String?;
-    if (ticket == null || ticket.isEmpty) throw AuthException('未获取到凭证');
-    await _saveToken(ticket);
-    return ticket;
+    final res = await _client.auth.signInWithPassword(
+      email: email,
+      password: password,
+    );
+    if (res.session == null) {
+      throw AppAuthException('Sign in failed');
+    }
+    return res.session!.accessToken;
   }
 }
 
 class ApiUserInfo {
-  ApiUserInfo({required this.uuid, required this.loginType, this.nickName, this.avatarUrl});
+  ApiUserInfo({
+    required this.uuid,
+    required this.loginType,
+    this.nickName,
+    this.avatarUrl,
+  });
   final String uuid;
   final String loginType;
   final String? nickName;
   final String? avatarUrl;
 }
 
-class AuthException implements Exception {
-  AuthException(this.message);
+class AppAuthException implements Exception {
+  AppAuthException(this.message);
   final String message;
   @override
   String toString() => message;

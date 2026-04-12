@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <!--
     If you are serving your web app in a path other than the root, change the
@@ -18,12 +18,33 @@
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="Hi-Doo 绘读 - 会读，更会说 | Read it, Speak it.">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>Hi-Doo | Think &amp; Retell — Interactive Literacy Assistant</title>
+  <meta name="description" content="Beyond reading: Unlock their understanding. Interactive Literacy Assistant for families — scan a book’s ISBN, Story Challenge (Detail Detective &amp; Master Storyteller), My Reading Journey. Non-profit.">
+  <meta name="keywords" content="Hi-Doo, Interactive Literacy Assistant, Think and Retell, children reading, literacy, reading journey, retelling, comprehension, non-profit, kids books, COPPA">
+  <meta name="robots" content="index, follow">
+  <meta name="author" content="Hi-Doo">
+  <meta name="theme-color" content="#FF8C42">
+
+  <!-- Replace with your production domain before launch -->
+  <link rel="canonical" href="https://hidoo.app/">
+
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Hi-Doo — Interactive Literacy Assistant">
+  <meta property="og:title" content="Hi-Doo | Think &amp; Retell — Interactive Literacy Assistant">
+  <meta property="og:description" content="Beyond reading: Unlock their understanding. Story Challenge: Detail Detective &amp; Master Storyteller. My Reading Journey.">
+  <meta property="og:url" content="https://hidoo.app/">
+  <meta property="og:locale" content="en_US">
+
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Hi-Doo | Interactive Literacy Assistant">
+  <meta name="twitter:description" content="Beyond reading: Unlock their understanding. ISBN scan, Story Challenge, My Reading Journey.">
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="Hi-Doo 绘读">
+  <meta name="apple-mobile-web-app-title" content="Hi-Doo Think &amp; Retell">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
 
   <!-- Favicon -->
@@ -31,13 +52,83 @@
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
 
-  <title>Hi-Doo 绘读</title>
   <link rel="manifest" href="/site.webmanifest">
-  <meta name="theme-color" content="#FF8C42">
-  <!-- mobile_scanner Web 端扫码必需：ZXing 解码库（0.21+ 对镜像条码支持更好） -->
+
+  <!-- mobile_scanner Web: ZXing -->
   <script src="https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js"></script>
+  <script>
+    (function () {
+      function isbnBarcodeHints() {
+        var m = new Map();
+        m.set(2, [7, 6, 14, 15, 4]);
+        return m;
+      }
+      window.hidooDecodeBarcodeFromImageFile = function (file) {
+        return new Promise(function (resolve) {
+          if (!file || !window.ZXing) {
+            resolve(null);
+            return;
+          }
+          var url = URL.createObjectURL(file);
+          var img = new Image();
+          img.decoding = 'async';
+          img.onload = function () {
+            URL.revokeObjectURL(url);
+            try {
+              var reader;
+              try {
+                reader = new ZXing.BrowserMultiFormatReader(isbnBarcodeHints(), 500);
+              } catch (e) {
+                reader = new ZXing.BrowserMultiFormatReader();
+              }
+              reader.decodeFromImageElement(img).then(function (result) {
+                try { reader.reset(); } catch (e) {}
+                resolve(result && result.text ? result.text : null);
+              }).catch(function () {
+                try { reader.reset(); } catch (e) {}
+                resolve(null);
+              });
+            } catch (e) {
+              resolve(null);
+            }
+          };
+          img.onerror = function () {
+            URL.revokeObjectURL(url);
+            resolve(null);
+          };
+          img.src = url;
+        });
+      };
+      window.hidooPickImageFile = function () {
+        return new Promise(function (resolve) {
+          var input = document.getElementById('isbn-upload');
+          if (!input) {
+            resolve(null);
+            return;
+          }
+          input.value = '';
+          function cleanup() {
+            input.removeEventListener('change', onChange);
+            input.removeEventListener('cancel', onCancel);
+          }
+          function onChange() {
+            cleanup();
+            resolve((input.files && input.files[0]) || null);
+          }
+          function onCancel() {
+            cleanup();
+            resolve(null);
+          }
+          input.addEventListener('change', onChange);
+          input.addEventListener('cancel', onCancel);
+          input.click();
+        });
+      };
+    })();
+  </script>
 </head>
 <body>
+  <input type="file" id="isbn-upload" accept="image/*" hidden aria-hidden="true">
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

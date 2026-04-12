@@ -89,12 +89,72 @@ async function synthesizeVolcTts(text) {
   return buf;
 }
 
+const OPENAI_TTS_MODEL = process.env.OPENAI_TTS_MODEL?.trim() || 'tts-1';
+const OPENAI_TTS_VOICE = process.env.OPENAI_TTS_VOICE?.trim() || 'shimmer';
+
+/** OpenAI Speech: https://platform.openai.com/docs/guides/text-to-speech — input max 4096 chars */
+async function synthesizeOpenAiTts(text) {
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  if (!apiKey) {
+    throw new Error('OPENAI_API_KEY missing');
+  }
+  const t0 = Date.now();
+  const input = text.length <= 4096 ? text : text.slice(0, 4096);
+  const resp = await fetch(OPENAI_TTS_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: OPENAI_TTS_MODEL,
+      input,
+      voice: OPENAI_TTS_VOICE,
+    }),
+    signal: AbortSignal.timeout(Math.max(15000, Number(process.env.OPENAI_TTS_TIMEOUT_MS || 90000))),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(err || resp.statusText || String(resp.status));
+  }
+
+  const audioBuf = Buffer.from(await resp.arrayBuffer());
+  console.log(
+    `[tts] openai ok ${Date.now() - t0}ms model=${OPENAI_TTS_MODEL} voice=${OPENAI_TTS_VOICE} bytes=${audioBuf.length}`,
+  );
+  return audioBuf;
+}
+
 router.post('/', quotaPreCheck('tts'), async (req, res, next) => {
   const routeT0 = Date.now();
   try {
     const text = String(req.body?.text ?? '').trim();
     if (!text) {
       return res.status(400).json({ error: 'invalid_text', message: 'text 不能为空' });
+    }
+
+    const openaiKey = process.env.OPENAI_API_KEY?.trim();
+    if (openaiKey) {
+      try {
+        const audioBuf = await synthesizeOpenAiTts(text);
+        res.set('Content-Type', 'audio/mpeg');
+        res.send(audioBuf);
+        console.log(`[tts] response sent ${Date.now() - routeT0}ms bytes=${audioBuf.length}`);
+        return;
+      } catch (e) {
+        console.warn('[tts] OpenAI TTS failed, retry once:', e?.message || e);
+        try {
+          await new Promise((r) => setTimeout(r, 400));
+          const audioBuf = await synthesizeOpenAiTts(text);
+          res.set('Content-Type', 'audio/mpeg');
+          res.send(audioBuf);
+          console.log(`[tts] response sent ${Date.now() - routeT0}ms bytes=${audioBuf.length} (retry)`);
+          return;
+        } catch (e2) {
+          console.warn('[tts] OpenAI retry failed, trying Volc if configured:', e2?.message || e2);
+        }
+      }
     }
 
     const volcApp = process.env.VOLC_TTS_APP_ID?.trim();
@@ -117,42 +177,16 @@ router.post('/', quotaPreCheck('tts'), async (req, res, next) => {
           console.log(`[tts] response sent ${Date.now() - routeT0}ms bytes=${audioBuf.length} (retry)`);
           return;
         } catch (e2) {
-          console.warn('[tts] 豆包语音重试仍失败，尝试 OpenAI:', e2?.message || e2);
+          console.warn('[tts] 豆包语音重试仍失败:', e2?.message || e2);
         }
       }
     }
 
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey || !apiKey.length) {
-      return res.status(503).json({
-        error: 'tts_not_configured',
-        message:
-          '请配置豆包语音 VOLC_TTS_APP_ID +（VOLC_TTS_ACCESS_TOKEN 或 VOLC_TTS_API_KEY），或 OPENAI_API_KEY（见 docs）',
-      });
-    }
-
-    const resp = await fetch(OPENAI_TTS_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'tts-1',
-        input: text,
-        voice: 'alloy',
-      }),
+    return res.status(503).json({
+      error: 'tts_not_configured',
+      message:
+        'Configure OPENAI_API_KEY for OpenAI TTS (preferred), or VOLC_TTS_APP_ID + token for Volc. See api/.env.example.',
     });
-
-    if (!resp.ok) {
-      const err = await resp.text();
-      return res.status(resp.status).json({ error: 'tts_failed', message: err || resp.statusText });
-    }
-
-    const audioBuf = Buffer.from(await resp.arrayBuffer());
-    res.set('Content-Type', 'audio/mpeg');
-    res.send(audioBuf);
-    console.log(`[tts] openai ok ${Date.now() - routeT0}ms bytes=${audioBuf.length}`);
   } catch (err) {
     console.warn('[tts] error', err?.message || err);
     next(err);

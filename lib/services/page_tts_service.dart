@@ -9,14 +9,15 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'page_tts_audio_impl_stub.dart'
     if (dart.library.html) 'page_tts_audio_impl_web.dart' as tts_audio;
 
-/// TTS：后端 /api/tts（优先豆包语音，其次 OpenAI），失败则设备朗读
+/// TTS：已配置 [EnvConfig.apiBaseUrl] 时走 `POST /api/tts`（服务端优先 **OpenAI**，失败则火山）；再失败则用本机/浏览器朗读。
 class PageTtsService {
   final AudioPlayer _player = AudioPlayer();
   FlutterTts? _flutterTts;
 
   FlutterTts get _tts => _flutterTts ??= FlutterTts();
 
-  /// 含：HTTP、播 MP3、降级 Web Speech / 本机 TTS；任一步永久挂起时避免 UI 一直转圈（不限于 Web）
+  static bool get _useServerTts => EnvConfig.isConfigured;
+
   static const Duration _speakTimeout = Duration(seconds: 240);
 
   Future<void> _withSpeakTimeout(Future<void> Function() fn) async {
@@ -25,6 +26,35 @@ class PageTtsService {
 
   void _logTts(String msg) {
     if (kDebugMode) debugPrint('[EchoReading TTS] $msg');
+  }
+
+  /// Web: fetch + decode + play after user gesture; always [onComplete] so UI spinners clear.
+  Future<void> _webSpeakFromUserGesture(
+    String t,
+    String? languageHint,
+    void Function()? onComplete,
+    void Function(Object error)? onError,
+  ) async {
+    try {
+      final bytes = await fetchTtsMp3Bytes(EnvConfig.apiBaseUrl, t)
+          .timeout(const Duration(seconds: 75));
+      if (bytes.isEmpty) throw Exception('TTS returned an empty response');
+      tts_audio.unlockAudioContextSync();
+      _logTts('decode+play… body=${bytes.length}b');
+      await tts_audio
+          .playTtsMp3(bytes, _player)
+          .timeout(const Duration(seconds: 100));
+      _logTts('play finished');
+    } catch (e) {
+      _logTts('gesture TTS fail $e');
+      try {
+        await _withSpeakTimeout(() => _fallbackSpeak(t, languageHint: languageHint));
+      } catch (e2) {
+        onError?.call(e2);
+      }
+    } finally {
+      onComplete?.call();
+    }
   }
 
   Future<void> _playFromApi(String t) async {
@@ -39,8 +69,7 @@ class PageTtsService {
     _logTts('play finished');
   }
 
-  /// Web 上必须在用户手势回调里 **同步** 调用（不要用 `async () async { await ... }` 再包一层），
-  /// 否则 iOS Safari 在 await HTTP 后会拒绝播放豆包 MP3。
+  /// 引导语等：Web 上须在用户手势里 **同步** 进入本方法（勿用 `async () async {}` 再包一层），否则部分浏览器在 await 网络后拒绝播 MP3。
   void speakDoubaoFromUserGesture(
     String text, {
     String? languageHint,
@@ -53,7 +82,8 @@ class PageTtsService {
       return;
     }
     tts_audio.unlockAudioContextSync();
-    if (!EnvConfig.isConfigured) {
+    if (!_useServerTts) {
+      _logTts('API not configured: device/browser TTS');
       unawaited(
         _withSpeakTimeout(() => _fallbackSpeak(t, languageHint: languageHint))
             .then((_) => onComplete?.call())
@@ -64,26 +94,7 @@ class PageTtsService {
       return;
     }
     if (kIsWeb) {
-      fetchTtsMp3Bytes(EnvConfig.apiBaseUrl, t)
-          .timeout(const Duration(seconds: 95))
-          .then((bytes) async {
-        if (bytes.isEmpty) throw Exception('TTS 空响应');
-        tts_audio.unlockAudioContextSync();
-        _logTts('decode+play… body=${bytes.length}b');
-        await tts_audio.playTtsMp3(bytes, _player);
-        _logTts('play finished');
-      })
-          .timeout(_speakTimeout)
-          .then((_) => onComplete?.call())
-          .catchError((Object e, StackTrace st) async {
-        _logTts('gesture TTS fail $e');
-        try {
-          await _withSpeakTimeout(() => _fallbackSpeak(t, languageHint: languageHint));
-          onComplete?.call();
-        } catch (e2) {
-          onError?.call(e2);
-        }
-      });
+      unawaited(_webSpeakFromUserGesture(t, languageHint, onComplete, onError));
       return;
     }
     unawaited(
@@ -101,35 +112,17 @@ class PageTtsService {
     );
   }
 
-  /// 后端 TTS（豆包/OpenAI）或降级为设备/浏览器语音
-  /// [languageHint]：`en` / `zh` 与复述语言一致时优先用于降级 TTS（避免英文点评被当成中文读）
   Future<void> speakWithDoubao(String text, {String? languageHint}) async {
-    final t = text.trim();
-    if (t.isEmpty) return;
-    tts_audio.unlockAudioContextSync();
-    await _withSpeakTimeout(() async {
-      try {
-        if (EnvConfig.isConfigured) {
-          await _playFromApi(t);
-        } else {
-          await _fallbackSpeak(t, languageHint: languageHint);
-        }
-      } catch (_) {
-        await _fallbackSpeak(t, languageHint: languageHint);
-      }
-    });
+    await speak(text, languageHint: languageHint);
   }
 
-  /// 朗读文本（拍照读页等）
-  /// [languageHint]：可选 `en` / `zh`，便于降级朗读选对语言（与豆包 API 无关）
   Future<void> speak(String text, {String? languageHint}) async {
     final t = text.trim();
     if (t.isEmpty) return;
     tts_audio.unlockAudioContextSync();
-
     await _withSpeakTimeout(() async {
       try {
-        if (EnvConfig.isConfigured) {
+        if (_useServerTts) {
           await _playFromApi(t);
         } else {
           await _fallbackSpeak(t, languageHint: languageHint);
@@ -140,7 +133,6 @@ class PageTtsService {
     });
   }
 
-  /// 仅用设备/浏览器 TTS
   Future<void> speakWithDeviceTts(String text, {String? languageHint}) async {
     final t = text.trim();
     if (t.isEmpty) return;
@@ -161,7 +153,6 @@ class PageTtsService {
     await _tts.setSpeechRate(0.5);
     await _tts.awaitSpeakCompletion(true);
     final utterance = _tts.speak(text);
-    // Web：onError 不 complete；原生偶发也不结束，统一加超时
     try {
       await utterance.timeout(const Duration(seconds: 120));
     } on TimeoutException {

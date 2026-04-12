@@ -2,15 +2,15 @@ import { optionalAuth } from './auth.js';
 import { checkQuota, consumeQuota } from '../lib/usage_quota.js';
 
 const kindLabels = {
-  vision: '拍照读页（视觉识别）',
-  transcribe: '语音转写',
-  tts: 'AI 朗读',
-  chat: 'AI 对话/点评',
+  transcribe: 'transcription',
+  tts: 'read-aloud',
+  chat: 'chat / feedback',
+  assessment: 'guided questions / listener (Groq)',
 };
 
 /**
- * 先做 optionalAuth，再检查当日额度；响应结束后按状态码决定是否计次。
- * @param {'vision'|'transcribe'|'tts'|'chat'} kind
+ * optionalAuth, then daily quota; consume on response finish by status code.
+ * @param {'transcribe'|'tts'|'chat'|'assessment'} kind
  */
 export function quotaPreCheck(kind) {
   return (req, res, next) => {

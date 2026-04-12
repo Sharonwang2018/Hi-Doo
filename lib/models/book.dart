@@ -55,3 +55,13 @@ class BookLookupResult {
   final String? coverUrl;
   final String? summary;
 }
+
+extension BookAsLookup on Book {
+  BookLookupResult asLookupResult() => BookLookupResult(
+        isbn: isbn,
+        title: title,
+        author: author,
+        coverUrl: coverUrl,
+        summary: summary,
+      );
+}

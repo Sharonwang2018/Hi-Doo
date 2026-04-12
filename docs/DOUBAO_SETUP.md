@@ -1,6 +1,6 @@
 # AI 与语音配置说明
 
-对话、拍照读页视觉识别支持 **火山方舟（豆包）** 或 **OpenRouter**（二选一即可，**豆包优先**：若同时配置 `ARK_*` 与 `OPENROUTER_*`，后端走豆包）。  
+**文本**对话与点评支持 **火山方舟（豆包）** 或 **OpenRouter**（二选一即可，**豆包优先**：若同时配置 `ARK_*` 与 `OPENROUTER_*`，后端走豆包）。应用内**已无**「拍照读页 / 页面 OCR」流程。  
 **TTS、语音转写** 仍使用 **OpenAI**（或 Web 端降级为浏览器语音）。
 
 ---
@@ -15,7 +15,7 @@
 ARK_API_KEY=你的方舟API_Key
 # 对话与点评用（文本模型接入点）
 ARK_ENDPOINT_ID=ep-xxxx
-# 可选：拍照读页单独用视觉模型接入点；不填则与 ARK_ENDPOINT_ID 相同（需选支持图像的模型）
+# 遗留：若后端仍保留视觉 env，可单独配置（当前 App 不调用页面拍照识别）
 # ARK_VISION_ENDPOINT_ID=ep-yyyy
 # 可选：点评单独用；不填则与 ARK_ENDPOINT_ID 相同
 # ARK_CHAT_ENDPOINT_ID=ep-xxxx
@@ -24,14 +24,14 @@ ARK_ENDPOINT_ID=ep-xxxx
 ```
 
 - 接口与 OpenAI Chat Completions 兼容，后端会请求 `{ARK_BASE_URL}/chat/completions`。
-- 拍照读页需要**多模态/视觉**接入点；若只配一个 `ep`，请选用官方标注支持「图像理解」的模型。
+- 当前产品仅需**文本**模型接入点即可支撑引导题与点评。
 - 未配置 `ARK_*` 时自动回退到下面的 OpenRouter。
 
 ---
 
 ## 方案 B：OpenRouter（海外或已有 key）
 
-用于 **AI 引导问题**、**AI 点评**、**拍照读页（OCR）**：
+用于 **AI 引导问题**、**AI 点评**（及后端若仍存在的其他文本 LLM 调用）：
 
 ```bash
 OPENROUTER_API_KEY=sk-or-v1-xxxx   # https://openrouter.ai
@@ -89,6 +89,6 @@ export OPENAI_API_KEY=sk-...
 ## 常见问题
 
 - **引导问题/点评失败**：检查 `ARK_*` 或 `OPENROUTER_API_KEY`，以及 `/api/chat` 是否 200。
-- **拍照读页识别失败**：视觉接入点须为多模态模型；或检查 OpenRouter 模型是否支持图像。
+- **历史**：若自行恢复页面 OCR，视觉接入点须为多模态模型；当前发行版不包含该路径。
 - **题目/点评播放不了**：检查 `OPENAI_API_KEY` 与 `/api/tts`。
 - **转写失败**：确认 `OPENAI_API_KEY` 与 `/api/transcribe`；Web 建议 WebM/Opus。

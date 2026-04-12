@@ -1,6 +1,7 @@
 {
-  "name": "Hi-Doo 绘读",
+  "name": "Hi-Doo | Think & Retell — Interactive Literacy Assistant",
   "short_name": "Hi-Doo",
+  "description": "Beyond reading: Unlock their understanding. Story Challenge & My Reading Journey.",
   "icons": [
     {
       "src": "/android-chrome-192x192.png",
@@ -15,5 +16,6 @@
   ],
   "theme_color": "#FF8C42",
   "background_color": "#ffffff",
-  "display": "standalone"
+  "display": "standalone",
+  "lang": "en"
 }

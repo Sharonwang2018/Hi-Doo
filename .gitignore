@@ -1,5 +1,6 @@
 # Local config (contains keys)
 run_app.sh
+supabase_flutter.env
 **/tcb_custom_login.json
 api/certs/*.pem
 api/.env

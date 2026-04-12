@@ -1,21 +1,35 @@
 import { Router } from 'express';
 import { query } from '../db.js';
 import { v4 as uuidv4 } from 'uuid';
-import { authMiddleware } from '../middleware/auth.js';
+import { authMiddleware, rejectGuestWrite } from '../middleware/auth.js';
 
 const router = Router();
 
 router.post('/', authMiddleware, async (req, res, next) => {
   try {
-    const { book_id, audio_url, transcript, ai_feedback, language, session_type } = req.body || {};
+    if (rejectGuestWrite(req, res)) return;
+    const {
+      book_id,
+      audio_url,
+      transcript,
+      ai_feedback,
+      language,
+      session_type,
+      library_partner_name,
+    } = req.body || {};
     if (!book_id) {
-      return res.status(400).json({ error: 'missing_book_id', message: '需要 book_id' });
+      return res.status(400).json({ error: 'missing_book_id', message: 'book_id is required' });
     }
 
     const id = uuidv4();
+    const libName =
+      typeof library_partner_name === 'string' && library_partner_name.trim().length > 0
+        ? library_partner_name.trim().slice(0, 200)
+        : null;
+
     await query(
-      `INSERT INTO read_logs (id, user_id, book_id, audio_url, transcript, ai_feedback, language, session_type)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      `INSERT INTO read_logs (id, user_id, book_id, audio_url, transcript, ai_feedback, language, session_type, library_partner_name)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
       [
         id,
         req.userId,
@@ -25,11 +39,12 @@ router.post('/', authMiddleware, async (req, res, next) => {
         ai_feedback || null,
         language || null,
         session_type || 'retelling',
+        libName,
       ]
     );
 
     const result = await query(
-      'SELECT id, user_id, book_id, audio_url, transcript, ai_feedback, language, session_type, created_at FROM read_logs WHERE id = $1',
+      'SELECT id, user_id, book_id, audio_url, transcript, ai_feedback, language, session_type, library_partner_name, created_at FROM read_logs WHERE id = $1',
       [id]
     );
     const row = result.rows[0];
@@ -42,19 +57,48 @@ router.post('/', authMiddleware, async (req, res, next) => {
       ai_feedback: row.ai_feedback,
       language: row.language,
       session_type: row.session_type,
+      library_partner_name: row.library_partner_name,
       created_at: row.created_at,
     });
   } catch (e) {
+    // JWT userId not in DB (stale token). 401 → client signs in again.
+    // pg errors: code '23503'; detail often `Key (user_id)=(...) is not present in table "users".`
+    const pgCode = e?.code ?? e?.cause?.code;
+    const blob = [
+      e?.constraint,
+      e?.detail,
+      e?.message,
+      e?.cause?.constraint,
+      e?.cause?.detail,
+      e?.cause?.message,
+    ]
+      .filter(Boolean)
+      .join(' ');
+    const isUserFkOnReadLogs =
+      /\bread_logs_user_id_fkey\b/i.test(blob) ||
+      (String(pgCode) === '23503' &&
+        (/read_logs_user_id/i.test(blob) ||
+          /\(user_id\)/i.test(blob) ||
+          /\buser_id\b.*not present/i.test(blob)));
+    if (isUserFkOnReadLogs && !res.headersSent) {
+      return res.status(401).json({
+        error: 'user_session_stale',
+        message:
+          'This login id is not accepted for read_logs (foreign key). ' +
+          'Ensure read_logs.user_id references auth.users, or create a profile row if it still references profiles.',
+      });
+    }
     next(e);
   }
 });
 
 router.patch('/:id', authMiddleware, async (req, res, next) => {
   try {
+    if (rejectGuestWrite(req, res)) return;
     const { id } = req.params;
     const { ai_feedback } = req.body || {};
     if (!ai_feedback) {
-      return res.status(400).json({ error: 'missing_ai_feedback', message: '需要 ai_feedback' });
+      return res.status(400).json({ error: 'missing_ai_feedback', message: 'ai_feedback is required' });
     }
 
     const result = await query(
@@ -62,7 +106,7 @@ router.patch('/:id', authMiddleware, async (req, res, next) => {
       [ai_feedback, id, req.userId]
     );
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'not_found', message: '记录不存在或无权修改' });
+      return res.status(404).json({ error: 'not_found', message: 'Log not found or access denied' });
     }
     res.json({ ok: true });
   } catch (e) {
@@ -72,6 +116,7 @@ router.patch('/:id', authMiddleware, async (req, res, next) => {
 
 router.get('/', authMiddleware, async (req, res, next) => {
   try {
+    if (rejectGuestWrite(req, res)) return;
     const result = await query(
       `SELECT
          r.id,
@@ -82,6 +127,7 @@ router.get('/', authMiddleware, async (req, res, next) => {
          r.ai_feedback,
          r.language,
          r.session_type,
+         r.library_partner_name,
          r.created_at,
          CASE
            WHEN b.id IS NULL THEN NULL
@@ -110,6 +156,7 @@ router.get('/', authMiddleware, async (req, res, next) => {
       ai_feedback: row.ai_feedback,
       language: row.language,
       session_type: row.session_type,
+      library_partner_name: row.library_partner_name,
       created_at: row.created_at,
       book: row.book,
     })));

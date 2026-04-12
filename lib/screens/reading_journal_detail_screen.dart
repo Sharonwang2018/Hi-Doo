@@ -66,7 +66,7 @@ class _ReadingJournalDetailScreenState
       builder: (context) => _PosterShareDialog(
         book: widget.book,
         readLog: widget.readLog,
-        encouragement: _encouragement ?? '今天也认真完成了故事复述，继续加油！',
+        encouragement: _encouragement ?? 'You shared a great retelling today—keep going!',
         score: _logicScore ?? 3,
       ),
     );
@@ -74,11 +74,11 @@ class _ReadingJournalDetailScreenState
 
   @override
   Widget build(BuildContext context) {
-    final transcript = widget.readLog.transcript ?? '暂无识别内容';
+    final transcript = widget.readLog.transcript ?? 'No transcript yet';
     final coverUrl = widget.book.coverUrl;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('阅读日记详情')),
+      appBar: AppBar(title: const Text('Journey entry')),
       body: SafeArea(
         child: ResponsiveLayout.constrainToMaxWidth(
           context,
@@ -133,7 +133,18 @@ class _ReadingJournalDetailScreenState
                               style: Theme.of(context).textTheme.titleMedium,
                             ),
                             const SizedBox(height: 8),
-                            Text('日期：${_dateLabel(widget.readLog.createdAt)}'),
+                            Text('Date: ${_dateLabel(widget.readLog.createdAt)}'),
+                            if (widget.readLog.libraryPartnerName != null &&
+                                widget.readLog.libraryPartnerName!.trim().isNotEmpty) ...[
+                              const SizedBox(height: 6),
+                              Text(
+                                'Library partner: ${widget.readLog.libraryPartnerName!.trim()}',
+                                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: Theme.of(context).colorScheme.primary,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                              ),
+                            ],
                           ],
                         ),
                       ),
@@ -149,7 +160,7 @@ class _ReadingJournalDetailScreenState
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        '复述文字',
+                        'What they shared',
                         style: TextStyle(fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 8),
@@ -166,15 +177,15 @@ class _ReadingJournalDetailScreenState
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'AI 点评',
+                        'Listener reply',
                         style: TextStyle(fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 8),
-                      Text(_encouragement ?? '暂无点评'),
+                      Text(_encouragement ?? 'No reply yet'),
                       const SizedBox(height: 10),
                       Row(
                         children: [
-                          const Text('逻辑表达评分：'),
+                          const Text('Expression score: '),
                           ...List.generate(5, (index) {
                             final active = (_logicScore ?? 0) > index;
                             return Icon(
@@ -198,7 +209,7 @@ class _ReadingJournalDetailScreenState
               OutlinedButton.icon(
                 onPressed: _onGeneratePoster,
                 icon: const Icon(Icons.ios_share_rounded),
-                label: const Text('生成分享海报'),
+                label: const Text('Create share image'),
               ),
             ],
           ),
@@ -249,7 +260,7 @@ class _PosterShareDialogState extends State<_PosterShareDialog> {
           _posterKey.currentContext?.findRenderObject()
               as RenderRepaintBoundary?;
       if (boundary == null) {
-        throw Exception('海报未渲染完成，请稍后重试');
+        throw Exception('Poster is not ready yet. Try again.');
       }
 
       final ui.Image image = await boundary.toImage(pixelRatio: 3);
@@ -257,7 +268,7 @@ class _PosterShareDialogState extends State<_PosterShareDialog> {
         format: ui.ImageByteFormat.png,
       );
       if (byteData == null) {
-        throw Exception('海报导出失败');
+        throw Exception('Could not export poster');
       }
 
       final Uint8List pngBytes = byteData.buffer.asUint8List();
@@ -270,14 +281,14 @@ class _PosterShareDialogState extends State<_PosterShareDialog> {
       await SharePlus.instance.share(
         ShareParams(
           files: [XFile(file.path)],
-          text: '我在 Hi-Doo 绘读 完成了一次阅读复述打卡！',
+          text: 'I finished a Hi-Doo | Think & Retell check-in!',
         ),
       );
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('分享失败：$error')));
+      ).showSnackBar(SnackBar(content: Text('Share failed: $error')));
     } finally {
       if (mounted) {
         setState(() {
@@ -314,7 +325,7 @@ class _PosterShareDialogState extends State<_PosterShareDialog> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Text(
-                      'Hi-Doo 绘读 阅读小成就',
+                      'Hi-Doo | Think & Retell milestone',
                       textAlign: TextAlign.center,
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.bold,
@@ -355,7 +366,7 @@ class _PosterShareDialogState extends State<_PosterShareDialog> {
                               ),
                               const SizedBox(height: 8),
                               Text(
-                                '打卡日期：${_dateLabel(widget.readLog.createdAt)}',
+                                'Logged: ${_dateLabel(widget.readLog.createdAt)}',
                               ),
                             ],
                           ),
@@ -378,7 +389,7 @@ class _PosterShareDialogState extends State<_PosterShareDialog> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Text('逻辑表达：'),
+                        const Text('Expression: '),
                         ...List.generate(5, (index) {
                           final active = widget.score > index;
                           return Icon(
@@ -403,7 +414,7 @@ class _PosterShareDialogState extends State<_PosterShareDialog> {
                 Expanded(
                   child: OutlinedButton(
                     onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('关闭'),
+                    child: const Text('Close'),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -417,7 +428,7 @@ class _PosterShareDialogState extends State<_PosterShareDialog> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.ios_share_rounded),
-                    label: Text(_sharing ? '生成中...' : '分享'),
+                    label: Text(_sharing ? 'Working…' : 'Share'),
                   ),
                 ),
               ],

@@ -37,7 +37,7 @@ class ReadLogWithBook {
         : Book(
             id: readLog.bookId,
             isbn: '',
-            title: '未知书籍',
+            title: 'Unknown title',
             author: 'Unknown Author',
             coverUrl: null,
             summary: null,

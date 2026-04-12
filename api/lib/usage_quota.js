@@ -7,10 +7,10 @@ const DATA_FILE = path.join(__dirname, '..', 'data', 'quota_state.json');
 
 /** 未配置 env 时的默认每日上限（注册用户 / 访客与匿名共用设备标识时） */
 const DEFAULTS = {
-  vision: { reg: 80, anon: 20 },
   transcribe: { reg: 45, anon: 12 },
   tts: { reg: 150, anon: 45 },
   chat: { reg: 60, anon: 14 },
+  assessment: { reg: 60, anon: 14 },
 };
 
 /** 内存 + 落盘；按 UTC 日期分桶 */
@@ -97,10 +97,10 @@ function envLimit(kind, registered) {
   return Number.isFinite(n) && n >= 0 ? Math.floor(n) : def;
 }
 
+/** Off unless explicitly enabled (1/true/on/yes). App monetization is optional donate UI only. */
 export function quotaEnabled() {
-  const v = process.env.QUOTA_ENABLED;
-  if (v === '0' || v === 'false' || v === 'off') return false;
-  return true;
+  const v = process.env.QUOTA_ENABLED?.trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'on' || v === 'yes';
 }
 
 function row(kind, key) {
@@ -120,7 +120,7 @@ export function checkQuota(req, kind) {
       ok: false,
       limit: 0,
       used: 0,
-      message: '管理员已关闭此类接口的每日额度',
+      message: 'Daily quota is disabled for this API category.',
     };
   }
 
@@ -132,7 +132,7 @@ export function checkQuota(req, kind) {
       limit,
       used,
       message:
-        '今日免费次数已用完。请明天再试，或注册登录账号以获得更高额度；也可在应用内支持开发者。',
+        'Daily free limit reached. Try again tomorrow, or sign in for a higher allowance. You can also support our mission from the home screen.',
     };
   }
   return { ok: true, limit, used, key };
@@ -140,7 +140,7 @@ export function checkQuota(req, kind) {
 
 function shouldConsume(kind, statusCode) {
   if (statusCode === 429) return false;
-  if (kind === 'vision') return statusCode === 200 || statusCode === 422;
+  if (kind === 'assessment') return statusCode === 200 || statusCode === 422;
   return statusCode === 200;
 }
 

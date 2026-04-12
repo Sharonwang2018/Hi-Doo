@@ -1,5 +1,5 @@
 name: echo_reading
-description: "Hi-Doo 绘读 - 会读，更会说 | Read it, Speak it."
+description: "Hi-Doo | Think & Retell — Interactive Literacy Assistant (Story Challenge & reading journey, web)."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -30,6 +30,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
@@ -39,27 +41,20 @@ dependencies:
   audioplayers: ^6.6.0
   google_fonts: ^8.0.2
   http: ^1.6.0
-  image_picker: ^1.2.1
+  crypto: ^3.0.6
+  idb_shim: ^2.6.7
   mobile_scanner: ^7.2.0
   path_provider: ^2.1.5
   share_plus: ^12.0.1
   flutter_tts: ^4.2.5
-  paddle_ocr: ^0.0.5
-  opencv_dart: ^2.2.1
-  image: ^3.3.0
-  whisper_kit: ^0.3.0
   speech_to_text: ^7.0.0
   web_socket_channel: ^3.0.2
   qr_flutter: ^4.1.0
-
-# opencv_dart 透视矫正需要 calib3d
-hooks:
-  user_defines:
-    dartcv4:
-      include_modules:
-        - imgcodecs
-        - imgproc
-        - calib3d
+  url_launcher: ^6.3.1
+  confetti: ^0.8.0
+  supabase_flutter: ^2.12.2
+  file_picker: ^11.0.2
+  flutter_svg: ^2.2.4
 
 dev_dependencies:
   flutter_test:
@@ -87,6 +82,7 @@ flutter:
   assets:
     - assets/tips/wechat_receive.png
     - assets/tips/alipay_receive.png
+    - assets/branding/google_g_logo.svg
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

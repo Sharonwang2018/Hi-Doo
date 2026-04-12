@@ -1,8 +1,11 @@
+import 'package:echo_reading/env_config.dart';
+import 'package:echo_reading/utils/donation_url_launch.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-/// 非强制性打赏说明 Bottom Sheet（微信/支付宝收款码由 [assets/tips] 下图片替换）。
-Future<void> showTipDonationSheet(BuildContext context) {
+/// Khan Academy–style mission support: optional external donation link (Buy Me a Coffee, Stripe, etc.).
+Future<void> showMissionSupportSheet(BuildContext context) {
   final cs = Theme.of(context).colorScheme;
   return showModalBottomSheet<void>(
     context: context,
@@ -28,7 +31,7 @@ Future<void> showTipDonationSheet(BuildContext context) {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                '给 AI 老师加个鸡腿吧 🍗',
+                'Support Literacy for All 🌟',
                 textAlign: TextAlign.center,
                 style: GoogleFonts.quicksand(
                   fontSize: 22,
@@ -38,72 +41,100 @@ Future<void> showTipDonationSheet(BuildContext context) {
               ),
               const SizedBox(height: 14),
               Text(
-                '我是 Hi-Doo 的独立开发者。为了保证识别的精准度，我调用了目前最顶尖的 AI 接口，每一页识别都有真实的算力成本。',
+                'Hi-Doo is a non-profit. Your support helps us provide AI reading tools to children who need them most.',
                 textAlign: TextAlign.center,
                 style: Theme.of(ctx).textTheme.bodyMedium?.copyWith(
-                  height: 1.45,
-                  color: cs.onSurfaceVariant,
-                ),
-              ),
-              const SizedBox(height: 20),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: _QrSlot(
-                      label: '微信收款',
-                      asset: 'assets/tips/wechat_receive.png',
-                      cs: cs,
+                      height: 1.45,
+                      color: cs.onSurfaceVariant,
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _QrSlot(
-                      label: '支付宝收款',
-                      asset: 'assets/tips/alipay_receive.png',
-                      cs: cs,
-                    ),
-                  ),
-                ],
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: 8),
               Text(
-                '可选金额：加个鸡腿 ￥6.6 / 请喝咖啡 ￥9.9 / 随意打赏（金额无强制）',
+                'Hi-Doo is free for families—always. If you can help, thank you.',
                 textAlign: TextAlign.center,
                 style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
-                  fontSize: 12,
-                  height: 1.35,
-                  color: cs.onSurfaceVariant,
-                ),
+                      height: 1.35,
+                      color: cs.outlineVariant,
+                      fontSize: 12,
+                    ),
               ),
+              const SizedBox(height: 22),
+              if (EnvConfig.hasDonationUrl) ...[
+                FilledButton.icon(
+                  onPressed: () async {
+                    final uri = Uri.parse(EnvConfig.donationUrl.trim());
+                    await launchExternalDonationUrl(ctx, uri);
+                  },
+                  icon: const Icon(Icons.favorite_rounded),
+                  label: const Text('Sponsor a Reader'),
+                ),
+                const SizedBox(height: 10),
+                TextButton.icon(
+                  onPressed: () async {
+                    final uri = Uri.parse(EnvConfig.donationUrl.trim());
+                    await Clipboard.setData(ClipboardData(text: uri.toString()));
+                    if (ctx.mounted) {
+                      ScaffoldMessenger.of(ctx).showSnackBar(
+                        const SnackBar(content: Text('Sponsor link copied.')),
+                      );
+                    }
+                  },
+                  icon: const Icon(Icons.link_rounded, size: 18),
+                  label: const Text('Copy sponsor link'),
+                ),
+              ] else ...[
+                Text(
+                  'No sponsor URL is baked into this build. Developers: set DONATION_URL when running flutter build (see run_all.sh).',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                        color: cs.outline,
+                        fontStyle: FontStyle.italic,
+                        height: 1.4,
+                      ),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton(
+                  onPressed: () {
+                    showDialog<void>(
+                      context: ctx,
+                      builder: (dCtx) => AlertDialog(
+                        title: const Text('Enable “Sponsor a Reader”'),
+                        content: const Text(
+                          'Before building the web app, export a full https URL, for example:\n\n'
+                          'export DONATION_URL="https://buymeacoffee.com/yourpage"\n'
+                          './run_all.sh\n\n'
+                          'DONATION_URL is passed as --dart-define; it is not read from api/.env.',
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(dCtx),
+                            child: const Text('OK'),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                  child: const Text('How to add a donation link'),
+                ),
+              ],
               const SizedBox(height: 16),
               Text(
-                '不方便的话也没关系，继续拍照/复述就好。若遇到“今日额度用完”，明天再来再用会更顺畅。',
+                'If you see a daily usage limit, try again tomorrow—our small servers need a breather too.',
                 textAlign: TextAlign.center,
                 style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
-                  fontSize: 11,
-                  height: 1.35,
-                  color: cs.outlineVariant,
-                ),
+                      fontSize: 11,
+                      height: 1.35,
+                      color: cs.outlineVariant,
+                    ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
               TextButton(
                 onPressed: () => Navigator.of(ctx).pop(),
                 style: TextButton.styleFrom(
                   foregroundColor: cs.onSurfaceVariant.withValues(alpha: 0.75),
                   padding: const EdgeInsets.symmetric(vertical: 12),
                 ),
-                child: const Text('下次一定'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(),
-                style: TextButton.styleFrom(
-                  foregroundColor: cs.onSurfaceVariant.withValues(alpha: 0.55),
-                  minimumSize: Size.zero,
-                  padding: const EdgeInsets.only(bottom: 4),
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-                child: const Text('继续使用', style: TextStyle(fontSize: 13)),
+                child: const Text('Continue'),
               ),
             ],
           ),
@@ -111,54 +142,4 @@ Future<void> showTipDonationSheet(BuildContext context) {
       );
     },
   );
-}
-
-// 由于底部已改为“纯金额提示”，鸡腿/咖啡/随意按钮不再需要可点击组件。
-
-class _QrSlot extends StatelessWidget {
-  const _QrSlot({required this.label, required this.asset, required this.cs});
-
-  final String label;
-  final String asset;
-  final ColorScheme cs;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Material(
-          elevation: 1,
-          borderRadius: BorderRadius.circular(12),
-          color: Colors.white,
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: SizedBox(
-              height: 200,
-              width: double.infinity,
-              child: Image.asset(
-                asset,
-                fit: BoxFit.contain,
-                alignment: Alignment.center,
-                errorBuilder: (context, error, stackTrace) => ColoredBox(
-                  color: cs.surfaceContainerHighest,
-                  child: Icon(
-                    Icons.qr_code_2_rounded,
-                    size: 56,
-                    color: cs.outline,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          label,
-          style: Theme.of(
-            context,
-          ).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w600),
-        ),
-      ],
-    );
-  }
 }

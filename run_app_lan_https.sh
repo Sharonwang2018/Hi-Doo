@@ -4,6 +4,8 @@
 # 需先安装 cloudflared: brew install cloudflared
 
 cd "$(dirname "$0")"
+# shellcheck source=scripts/load_supabase_flutter_env.sh
+. ./scripts/load_supabase_flutter_env.sh
 
 if ! command -v cloudflared &>/dev/null; then
   echo "❌ 未安装 cloudflared，请先执行: brew install cloudflared"

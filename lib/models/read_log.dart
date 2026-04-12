@@ -8,6 +8,7 @@ class ReadLog {
     this.aiFeedback,
     this.language,
     this.sessionType = 'retelling',
+    this.libraryPartnerName,
     required this.createdAt,
   });
 
@@ -19,11 +20,21 @@ class ReadLog {
   final String? aiFeedback;
   final String? language;
   final String sessionType;
+  final String? libraryPartnerName;
   final DateTime createdAt;
 
   bool get isSharedReading => sessionType == 'shared_reading';
 
-  bool get isPhotoReadPage => sessionType == 'photo_read_page';
+  bool get isComprehensionQuestions => sessionType == 'comprehension_questions';
+
+  bool get isQuizChallenge => sessionType == 'quiz_challenge';
+
+  bool get isStorytellerChallenge => sessionType == 'storyteller_challenge';
+
+  bool get isCombinedChallenge => sessionType == 'combined_challenge';
+
+  /// Quick log only — no Detail Detective / Storyteller (for analytics).
+  bool get isLogOnly => sessionType == 'log_only';
 
   factory ReadLog.fromJson(Map<String, dynamic> json) {
     final id = json['id'] as String? ?? json['_id'] as String? ?? '';
@@ -36,6 +47,7 @@ class ReadLog {
       aiFeedback: json['ai_feedback'] as String?,
       language: json['language'] as String?,
       sessionType: json['session_type'] as String? ?? 'retelling',
+      libraryPartnerName: json['library_partner_name'] as String?,
       createdAt: DateTime.parse(json['created_at'] as String),
     );
   }
@@ -50,6 +62,7 @@ class ReadLog {
       'ai_feedback': aiFeedback,
       'language': language,
       'session_type': sessionType,
+      if (libraryPartnerName != null) 'library_partner_name': libraryPartnerName,
       'created_at': createdAt.toIso8601String(),
     };
   }

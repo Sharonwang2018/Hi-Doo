@@ -6,5 +6,7 @@ alwaysApply: true
 # V0 baseline
 
 - **Tag `V0`** marks the last **fully tested** snapshot (book scan/lookup, save book, recording/upload, read logs, AI feedback, TTS including web). Treat it as the reference implementation for those behaviors.
+- **Shipping target is Web only** (`flutter build web`, served with the Node API as in `run_all.sh`). Do not prioritize iOS/Android app store flows; native project folders may remain for Flutter tooling but are not the product release.
+- **Product scope**: ISBN → save book → child chooses **quiz only / retelling only / quiz then retelling**; AI from title/author/summary; **reading log** only. Do not reintroduce photo page OCR, family read-aloud-only flow, or library-partner UX unless explicitly requested.
 - Prefer **additive** changes and small, localized edits. Do **not** refactor or revert V0-era flows (auth refresh/retry, `POST /books` guest path, book lookup proxy, upload/read-log APIs, TTS web wiring, `EnvConfig` URL handling) unless the user **explicitly** asks to change that area.
 - To compare or recover behavior, use `git diff V0` or `git show V0:` on specific paths.

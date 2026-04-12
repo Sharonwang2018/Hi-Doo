@@ -1,14 +1,17 @@
 import 'package:echo_reading/env_config.dart';
+import 'package:echo_reading/models/book.dart';
 import 'package:echo_reading/screens/my_read_logs_screen.dart';
 import 'package:echo_reading/screens/login_screen.dart';
 import 'package:echo_reading/services/api_auth_service.dart';
-import 'package:echo_reading/screens/photo_read_page_screen.dart';
-import 'package:echo_reading/screens/scan_book_screen.dart';
-import 'package:echo_reading/widgets/responsive_layout.dart';
+import 'package:echo_reading/services/reading_streak_service.dart';
+import 'package:echo_reading/widgets/home_isbn_scanner.dart';
+import 'package:echo_reading/widgets/scan_about_sheet.dart';
+import 'package:echo_reading/widgets/reading_challenge_picker.dart';
+import 'package:echo_reading/widgets/streak_home_badge.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-/// 视觉金字塔：品牌区 > 功能卡片
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -17,12 +20,35 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  final GlobalKey<HomeIsbnScannerState> _scanKey = GlobalKey<HomeIsbnScannerState>();
+  BookLookupResult? _pendingLookup;
   bool _isLoggedIn = false;
 
   @override
   void initState() {
     super.initState();
+    ReadingStreakService.refreshNotifier();
     _checkAuth();
+  }
+
+  void _showChallengeSheet(BookLookupResult lookup) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetCtx) => ReadingChallengePicker(
+        parentContext: context,
+        sheetContext: sheetCtx,
+        lookup: lookup,
+        savedBook: null,
+      ),
+    );
+  }
+
+  void _onBookFound(BookLookupResult lookup) {
+    setState(() => _pendingLookup = lookup);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _showChallengeSheet(lookup);
+    });
   }
 
   Future<void> _checkAuth() async {
@@ -37,324 +63,274 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _openJourney() async {
+    if (!EnvConfig.isConfigured) return;
+    if (!_isLoggedIn) {
+      final ok = await Navigator.push<bool>(
+        context,
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+      );
+      if (ok == true && mounted) {
+        await _checkAuth();
+        if (_isLoggedIn && mounted) {
+          await Navigator.push<void>(
+            context,
+            MaterialPageRoute<void>(builder: (_) => const MyReadLogsScreen()),
+          );
+        }
+      }
+      return;
+    }
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute<void>(builder: (_) => const MyReadLogsScreen()),
+    );
+  }
+
+  Future<void> _openScanOptions() async {
+    await HapticFeedback.lightImpact();
+    if (!mounted) return;
+    final titleStyle = GoogleFonts.montserrat(fontWeight: FontWeight.w600);
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetCtx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.photo_camera_outlined),
+                title: Text('Scan with camera', style: titleStyle),
+                onTap: () {
+                  Navigator.pop(sheetCtx);
+                  _scanKey.currentState?.resumeScanning();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library_outlined),
+                title: Text('Upload barcode photo', style: titleStyle),
+                onTap: () {
+                  Navigator.pop(sheetCtx);
+                  _scanKey.currentState?.pickBarcodePhoto();
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _onMenuSelected(String value) async {
+    switch (value) {
+      case 'manual':
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _scanKey.currentState?.openManualEntry();
+        });
+        break;
+      case 'journey':
+        await _openJourney();
+        break;
+      case 'about':
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) showScanAboutSheet(context);
+        });
+        break;
+      case 'signin':
+        final ok = await Navigator.push<bool>(
+          context,
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
+        );
+        if (ok == true && mounted) _checkAuth();
+        break;
+      case 'logout':
+        await ApiAuthService.signOut();
+        if (mounted) _checkAuth();
+        break;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final topPadding = MediaQuery.of(context).padding.top + 20;
-    return Padding(
-      padding: EdgeInsets.only(top: topPadding),
-      child: Scaffold(
+    // Clearance above in-scanner bottom bar (Scan row + safe area).
+    final bottomFab =
+        12 + 48 + 16 + MediaQuery.viewPaddingOf(context).bottom;
+
+    return Scaffold(
+      extendBody: true,
       appBar: AppBar(
-        leadingWidth: 80,
-        leading: const SizedBox(),
         centerTitle: true,
+        toolbarHeight: 56,
+        leadingWidth: 118,
+        leading: const Padding(
+          padding: EdgeInsets.only(left: 10),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: StreakHomeBadge(),
+          ),
+        ),
         title: Text(
-          'Hi-Doo 绘读',
-          style: GoogleFonts.quicksand(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
+          'Hi-Doo',
+          style: GoogleFonts.montserrat(
+            fontSize: 22,
+            fontWeight: FontWeight.w700,
             color: const Color(0xFF1a1a1a),
+            letterSpacing: -0.5,
           ),
         ),
         actions: [
-          if (EnvConfig.isConfigured)
-            if (_isLoggedIn)
-              Padding(
-                padding: const EdgeInsets.only(right: 20),
-                child: PopupMenuButton<String>(
-                  icon: const Icon(Icons.person_rounded),
-                  onSelected: (value) async {
-                    if (value == 'read_logs') {
-                      await Navigator.push<void>(
-                        context,
-                        MaterialPageRoute<void>(
-                          builder: (_) => const MyReadLogsScreen(),
-                        ),
-                      );
-                    } else if (value == 'logout') {
-                      await ApiAuthService.signOut();
-                      _checkAuth();
-                    }
-                  },
-                  itemBuilder: (_) => [
-                    const PopupMenuItem(
-                      value: 'read_logs',
-                      child: Row(
-                        children: [
-                          Icon(Icons.history_rounded),
-                          SizedBox(width: 8),
-                          Text('我的阅读记录'),
-                        ],
-                      ),
+          Padding(
+            padding: const EdgeInsets.only(right: 4),
+            child: PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert_rounded),
+              tooltip: 'Menu',
+              onSelected: _onMenuSelected,
+              itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: 'manual',
+                  child: Row(
+                    children: [
+                      Icon(Icons.keyboard_alt_outlined, size: 22),
+                      SizedBox(width: 10),
+                      Text('Enter ISBN manually'),
+                    ],
+                  ),
+                ),
+                if (EnvConfig.isConfigured)
+                  const PopupMenuItem(
+                    value: 'journey',
+                    child: Row(
+                      children: [
+                        Icon(Icons.auto_stories_rounded, size: 22),
+                        SizedBox(width: 10),
+                        Text('My Reading Journey'),
+                      ],
                     ),
+                  ),
+                const PopupMenuItem(
+                  value: 'about',
+                  child: Row(
+                    children: [
+                      Icon(Icons.info_outline_rounded, size: 22),
+                      SizedBox(width: 10),
+                      Text('About & privacy'),
+                    ],
+                  ),
+                ),
+                if (EnvConfig.isConfigured)
+                  if (_isLoggedIn)
                     const PopupMenuItem(
                       value: 'logout',
                       child: Row(
                         children: [
-                          Icon(Icons.logout_rounded),
-                          SizedBox(width: 8),
-                          Text('退出登录'),
+                          Icon(Icons.logout_rounded, size: 22),
+                          SizedBox(width: 10),
+                          Text('Sign out'),
+                        ],
+                      ),
+                    )
+                  else
+                    const PopupMenuItem(
+                      value: 'signin',
+                      child: Row(
+                        children: [
+                          Icon(Icons.login_rounded, size: 22),
+                          SizedBox(width: 10),
+                          Text('Sign in'),
                         ],
                       ),
                     ),
-                  ],
-                ),
-              )
-            else
-              Padding(
-                padding: const EdgeInsets.only(right: 20),
-                child: TextButton.icon(
-                  onPressed: () async {
-                    final ok = await Navigator.push<bool>(
-                      context,
-                      MaterialPageRoute(builder: (_) => const LoginScreen()),
-                    );
-                    if (ok == true) _checkAuth();
-                  },
-                  icon: const Icon(Icons.login_rounded, size: 20),
-                  label: const Text('登录'),
-                ),
-              ),
-        ],
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(36),
-          child: Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: Text(
-              '会读，更会说 | Read it, Speak it.',
-              style: GoogleFonts.quicksand(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: const Color(0xFF333333),
-              ),
-              textAlign: TextAlign.center,
+              ],
             ),
           ),
-        ),
+        ],
       ),
-      body: SafeArea(
-        top: false,
-        child: Column(
-            children: [
-              const SizedBox(height: 60),
-              Expanded(
-                child: ResponsiveLayout.constrainToMaxWidth(
-                  context,
-                  Padding(
-                    padding: ResponsiveLayout.padding(context),
-                    child: Center(
-                      child: ResponsiveLayout.isTablet(context)
-                          ? _TabletLayout(
-                              scanTap: () => _push(context, const ScanBookScreen()),
-                              photoTap: () => _push(context, const PhotoReadPageScreen()),
-                            )
-                          : _PhoneLayout(
-                              scanTap: () => _push(context, const ScanBookScreen()),
-                              photoTap: () => _push(context, const PhotoReadPageScreen()),
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          Positioned.fill(
+            child: HomeIsbnScanner(
+              key: _scanKey,
+              immersive: true,
+              onBookFound: _onBookFound,
+              onOpenScanOptions: _openScanOptions,
+            ),
+          ),
+          if (_pendingLookup != null)
+            Positioned(
+              left: 12,
+              right: 12,
+              bottom: bottomFab,
+              child: Material(
+                elevation: 6,
+                borderRadius: BorderRadius.circular(14),
+                color: Theme.of(context).colorScheme.surfaceContainerHigh,
+                clipBehavior: Clip.antiAlias,
+                child: InkWell(
+                  onTap: () => _showChallengeSheet(_pendingLookup!),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(10, 8, 4, 8),
+                    child: Row(
+                      children: [
+                        if (_pendingLookup!.coverUrl != null &&
+                            _pendingLookup!.coverUrl!.isNotEmpty)
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Image.network(
+                              _pendingLookup!.coverUrl!,
+                              width: 40,
+                              height: 54,
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stackTrace) =>
+                                  const Icon(Icons.menu_book_rounded, size: 36),
                             ),
+                          )
+                        else
+                          const Padding(
+                            padding: EdgeInsets.only(right: 8),
+                            child: Icon(Icons.menu_book_rounded, size: 36),
+                          ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                _pendingLookup!.title,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: GoogleFonts.montserrat(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              Text(
+                                _pendingLookup!.author,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: GoogleFonts.montserrat(
+                                  fontSize: 12,
+                                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close_rounded),
+                          onPressed: () => setState(() => _pendingLookup = null),
+                          tooltip: 'Clear',
+                        ),
+                      ],
                     ),
                   ),
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                child: Text(
-                  '『Hi-Doo绘读:AI陪伴,悦读成长』',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Theme.of(context).colorScheme.onSurface.withAlpha(128),
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _push(BuildContext context, Widget screen) {
-    Navigator.push(context, MaterialPageRoute<void>(builder: (_) => screen));
-  }
-}
-
-class _PhoneLayout extends StatelessWidget {
-  const _PhoneLayout({required this.scanTap, required this.photoTap});
-
-  final VoidCallback scanTap;
-  final VoidCallback photoTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const Spacer(flex: 3),
-        _MenuCard(
-          icon: Icons.qr_code_scanner_rounded,
-          title: '扫页码 / 扫码录入',
-          subtitle: '扫描 ISBN 录入书籍，支持复述或共读记录',
-          onTap: scanTap,
-        ),
-        const SizedBox(height: 12),
-        _MenuCard(
-          icon: Icons.camera_alt_rounded,
-          title: 'AI 读书（拍照读页）',
-          subtitle:
-              '随拍随读本页，不存全书。读完一整本后，请用「扫码录入」选书并完成复述，保存阅读记录。',
-          onTap: photoTap,
-        ),
-        const Spacer(flex: 2),
-      ],
-    );
-  }
-}
-
-class _TabletLayout extends StatelessWidget {
-  const _TabletLayout({required this.scanTap, required this.photoTap});
-
-  final VoidCallback scanTap;
-  final VoidCallback photoTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const Spacer(flex: 2),
-        Expanded(
-          flex: 3,
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Expanded(
-                child: _MenuCard(
-                  icon: Icons.qr_code_scanner_rounded,
-                  title: '扫页码 / 扫码录入',
-                  subtitle: '扫描 ISBN 录入书籍，支持复述或共读记录',
-                  onTap: scanTap,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: _MenuCard(
-                  icon: Icons.camera_alt_rounded,
-                  title: 'AI 读书（拍照读页）',
-                  subtitle:
-                      '随拍随读本页，不存全书。读完一整本后，请用「扫码录入」选书并完成复述，保存阅读记录。',
-                  onTap: photoTap,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const Spacer(flex: 2),
-      ],
-    );
-  }
-}
-
-class _MenuCard extends StatelessWidget {
-  const _MenuCard({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final isTablet = ResponsiveLayout.isTablet(context);
-    final iconSz = ResponsiveLayout.iconSize(context);
-    final padding = ResponsiveLayout.cardPadding(context);
-    const cardRadius = 32.0;
-    const minCardHeight = 160.0;
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(cardRadius),
-        child: Container(
-          constraints: const BoxConstraints(minHeight: minCardHeight),
-          padding: EdgeInsets.all(padding),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surface,
-            borderRadius: BorderRadius.circular(cardRadius),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withAlpha(20),
-                blurRadius: 16,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-                  child: isTablet
-              ? Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    _iconBox(context, icon, iconSz * 1.5, padding),
-                    SizedBox(height: padding),
-                    Text(
-                      title,
-                      style: Theme.of(context).textTheme.titleLarge,
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      subtitle,
-                      style: Theme.of(context).textTheme.bodyMedium,
-                      textAlign: TextAlign.center,
-                      maxLines: 4,
-                    ),
-                    SizedBox(height: padding * 0.5),
-                    Icon(Icons.chevron_right_rounded, size: iconSz),
-                  ],
-                )
-              : Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _iconBox(context, icon, iconSz, padding),
-                    SizedBox(height: padding),
-                    Text(title, style: Theme.of(context).textTheme.titleLarge),
-                    const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: Icon(Icons.chevron_right_rounded, size: iconSz),
-                    ),
-                  ],
-                ),
-        ),
-      ),
-    );
-  }
-
-  Widget _iconBox(BuildContext context, IconData iconData, double iconSz, double padding) {
-    return Container(
-      padding: EdgeInsets.all(padding),
-      decoration: BoxDecoration(
-        color: Theme.of(context)
-            .colorScheme
-            .primaryContainer
-            .withAlpha(200),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Icon(
-        iconData,
-        size: iconSz,
-        color: Theme.of(context).colorScheme.primary,
+            ),
+        ],
       ),
     );
   }
