@@ -564,16 +564,18 @@ class _PosterShareDialogState extends State<_PosterShareDialog> {
     if (bytes == null || _downloadBusy) return;
     setState(() => _downloadBusy = true);
     try {
-      await downloadPosterPng(
+      final hint = await downloadPosterPng(
         bytes,
         filename: 'hidoo_reading_achievement.png',
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
-            'Download started — check your downloads folder.',
+            hint ??
+                'Download started — check your downloads folder.',
           ),
+          duration: Duration(seconds: hint != null ? 6 : 3),
         ),
       );
     } catch (e, st) {
@@ -834,14 +836,15 @@ class _PosterShareDialogState extends State<_PosterShareDialog> {
                   onPressed: (_posterBytes == null || _downloadBusy)
                       ? null
                       : () {
-                          openPosterImageInNewTab(_posterBytes!);
+                          final msg = openPosterImageInNewTab(_posterBytes!);
                           if (!context.mounted) return;
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
+                            SnackBar(
                               content: Text(
-                                'Image opened in a new tab — use your browser’s Save or Share there (best on iPhone Safari).',
+                                msg ??
+                                    'Image opened in a new tab — use your browser’s Save or Share there.',
                               ),
-                              duration: Duration(seconds: 5),
+                              duration: const Duration(seconds: 6),
                             ),
                           );
                         },
