@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:html' as html;
 import 'dart:typed_data';
@@ -34,6 +35,8 @@ void _showIosScreenshotOverlay(
   final root = html.document.body;
   if (root == null) return;
 
+  Timer? hintFadeTimer;
+
   final shell = html.DivElement()
     ..style.position = 'fixed'
     ..style.left = '0'
@@ -47,15 +50,17 @@ void _showIosScreenshotOverlay(
     ..style.alignItems = 'center'
     ..style.justifyContent = 'flex-start'
     ..style.boxSizing = 'border-box'
-    ..style.padding = 'max(44px, env(safe-area-inset-top, 0px) + 28px) 40px max(48px, env(safe-area-inset-bottom, 0px) + 32px) 40px';
+    ..style.padding =
+        'max(12px, env(safe-area-inset-top, 0px) + 8px) 40px 12px 40px';
 
   final topBar = html.DivElement()
     ..style.width = '100%'
+    ..style.flexShrink = '0'
     ..style.display = 'flex'
     ..style.flexDirection = 'row'
     ..style.justifyContent = 'flex-end'
     ..style.alignItems = 'flex-start'
-    ..style.marginBottom = '8px';
+    ..style.paddingBottom = '8px';
 
   final doneBtn = html.ButtonElement()
     ..text = 'Done'
@@ -70,16 +75,6 @@ void _showIosScreenshotOverlay(
 
   topBar.append(doneBtn);
 
-  final headline = html.DivElement()
-    ..text = 'Screenshots are the best way to save on iPhone! 📸'
-    ..style.color = '#ffffff'
-    ..style.fontSize = '18px'
-    ..style.fontWeight = '700'
-    ..style.textAlign = 'center'
-    ..style.lineHeight = '1.35'
-    ..style.marginBottom = '16px'
-    ..style.maxWidth = '520px';
-
   final imgWrap = html.DivElement()
     ..style.flex = '1'
     ..style.display = 'flex'
@@ -91,37 +86,95 @@ void _showIosScreenshotOverlay(
   final img = html.ImageElement()
     ..src = objectUrl
     ..style.maxWidth = '100%'
-    ..style.maxHeight =
-        'min(62vh, calc(100dvh - 280px))'
+    ..style.maxHeight = 'min(78vh, calc(100dvh - 140px))'
     ..style.width = 'auto'
     ..style.height = 'auto'
     ..style.objectFit = 'contain'
     ..style.borderRadius = '16px'
-    ..style.boxShadow = '0 8px 32px rgba(0,0,0,0.45)'
+    ..style.boxShadow = '0 12px 40px rgba(0,0,0,0.5)'
     ..style.touchAction = 'none'
-    ..style.userSelect = 'none';
+    ..style.userSelect = 'none'
+    ..style.opacity = '0'
+    ..style.transform = 'scale(0.92) translateY(16px)'
+    ..style.transition =
+        'opacity 0.6s cubic-bezier(0.22, 1, 0.36, 1), transform 0.65s cubic-bezier(0.22, 1, 0.36, 1)';
 
   imgWrap.append(img);
+
+  /// Both hints at the bottom; fade out after 3s so screenshots stay poster + Done only.
+  final hintZone = html.DivElement()
+    ..style.flexShrink = '0'
+    ..style.width = '100%'
+    ..style.maxWidth = '400px'
+    ..style.padding =
+        '8px 20px max(28px, env(safe-area-inset-bottom, 0px) + 16px)'
+    ..style.textAlign = 'center'
+    ..style.opacity = '1'
+    ..style.transition = 'opacity 0.85s ease-out';
+
+  final headline = html.DivElement()
+    ..text = 'Screenshots are the best way to save on iPhone! 📸'
+    ..style.color = '#e8e8e8'
+    ..style.fontSize = '15px'
+    ..style.fontWeight = '700'
+    ..style.lineHeight = '1.35'
+    ..style.marginBottom = '10px';
 
   final hint = html.ParagraphElement()
     ..text =
         'Your poster is ready! Just take a screenshot to share with friends.'
-    ..style.color = '#c8c8c8'
-    ..style.fontSize = '15px'
+    ..style.color = '#a8a8a8'
+    ..style.fontSize = '13px'
     ..style.fontWeight = '500'
-    ..style.textAlign = 'center'
     ..style.lineHeight = '1.4'
-    ..style.marginTop = '20px'
-    ..style.marginBottom = '0'
-    ..style.maxWidth = '340px';
+    ..style.margin = '0';
+
+  hintZone.append(headline);
+  hintZone.append(hint);
 
   shell.append(topBar);
-  shell.append(headline);
   shell.append(imgWrap);
-  shell.append(hint);
+  shell.append(hintZone);
   root.append(shell);
 
+  void runPosterEntrance() {
+    void kick() {
+      img.style.opacity = '1';
+      img.style.transform = 'scale(1) translateY(0)';
+    }
+
+    html.window.requestAnimationFrame((_) {
+      html.window.requestAnimationFrame((_) => kick());
+    });
+  }
+
+  if (img.complete == true) {
+    runPosterEntrance();
+  } else {
+    img.onLoad.listen((_) => runPosterEntrance());
+    img.onError.listen((_) => runPosterEntrance());
+  }
+
+  void hideHints() {
+    hintZone.style.opacity = '0';
+    hintZone.style.pointerEvents = 'none';
+  }
+
+  void onHintFadeDone(html.Event ev) {
+    if (ev.target != hintZone) return;
+    if (ev is! html.TransitionEvent) return;
+    if (ev.propertyName != 'opacity') return;
+    if (hintZone.style.opacity != '0') return;
+    hintZone.style.display = 'none';
+    img.style.maxHeight = 'min(82vh, calc(100dvh - 120px))';
+  }
+
+  hintZone.onTransitionEnd.listen(onHintFadeDone);
+
+  hintFadeTimer = Timer(const Duration(seconds: 3), hideHints);
+
   void remove() {
+    hintFadeTimer?.cancel();
     try {
       shell.remove();
     } catch (_) {}
