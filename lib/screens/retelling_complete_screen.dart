@@ -13,6 +13,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 
+import 'package:echo_reading/screens/home_screen.dart';
 import 'package:echo_reading/services/api_auth_service.dart';
 import 'package:echo_reading/services/reading_streak_service.dart';
 import 'package:echo_reading/widgets/tip_donation_sheet.dart';
@@ -51,9 +52,16 @@ class RetellingCompleteScreen extends StatefulWidget {
   /// Short NGO product loop: Scan → Choose → Play → Journey.
   final bool showJourneyRecap;
 
-  /// 返回到首页（避免回到书籍确认页）
+  /// Return to scanner home. Handles log-only flow where [HomeScreen] was not under this route.
   static void popToHome(BuildContext context) {
-    Navigator.of(context).popUntil((route) => route.isFirst);
+    final nav = Navigator.of(context, rootNavigator: true);
+    if (nav.canPop()) {
+      nav.popUntil((route) => route.isFirst);
+    } else {
+      nav.pushReplacement(
+        MaterialPageRoute<void>(builder: (_) => const HomeScreen()),
+      );
+    }
   }
 
   @override
@@ -603,8 +611,21 @@ class _PosterShareDialogState extends State<_PosterShareDialog> {
                     ),
                 ],
               ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+      // Keep save / open out of scroll so they stay visible under a tall poster on Web.
+      actionsAlignment: MainAxisAlignment.center,
+      actions: [
+        SizedBox(
+          width: _posterW + 8,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
               if (kIsWeb && _posterBytes != null) ...[
-                const SizedBox(height: 18),
                 FilledButton.icon(
                   onPressed: _downloadBusy ? null : () => _downloadPosterToDevice(),
                   icon: _downloadBusy
@@ -648,9 +669,9 @@ class _PosterShareDialogState extends State<_PosterShareDialog> {
                     minimumSize: const Size.fromHeight(48),
                   ),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 10),
                 Text(
-                  'Tap Save to download the PNG. On some phones (especially iPhone), use Open in new tab, then save the picture from there.',
+                  'Save downloads the PNG. On iPhone Safari, use Open in new tab, then save the picture.',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                     fontWeight: FontWeight.w600,
@@ -658,49 +679,51 @@ class _PosterShareDialogState extends State<_PosterShareDialog> {
                   ),
                   textAlign: TextAlign.center,
                 ),
+                const SizedBox(height: 12),
               ],
-              const SizedBox(height: 32),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  if (kIsWeb)
+                    TextButton(
+                      onPressed: () async {
+                        await Clipboard.setData(ClipboardData(text: widget.shareUrl));
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              'Link copied!\nShare this app with your friends.',
+                              style: GoogleFonts.montserrat(
+                                fontWeight: FontWeight.w600,
+                                height: 1.35,
+                              ),
+                            ),
+                            duration: const Duration(seconds: 4),
+                          ),
+                        );
+                      },
+                      style: TextButton.styleFrom(
+                        foregroundColor: theme.colorScheme.onSurfaceVariant,
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        minimumSize: const Size(48, 48),
+                        tapTargetSize: MaterialTapTargetSize.padded,
+                      ),
+                      child: const Text('Copy link'),
+                    ),
+                  TextButton(
+                    style: TextButton.styleFrom(
+                      foregroundColor: theme.colorScheme.onSurfaceVariant,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      minimumSize: const Size(48, 48),
+                      tapTargetSize: MaterialTapTargetSize.padded,
+                    ),
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Close'),
+                  ),
+                ],
+              ),
             ],
           ),
-        ),
-      ),
-      actionsAlignment: MainAxisAlignment.center,
-      actions: [
-        if (kIsWeb)
-          TextButton(
-            onPressed: () async {
-              await Clipboard.setData(ClipboardData(text: widget.shareUrl));
-              if (!context.mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    'Link copied!\nShare this app with your friends.',
-                    style: GoogleFonts.montserrat(
-                      fontWeight: FontWeight.w600,
-                      height: 1.35,
-                    ),
-                  ),
-                  duration: const Duration(seconds: 4),
-                ),
-              );
-            },
-            style: TextButton.styleFrom(
-              foregroundColor: theme.colorScheme.onSurfaceVariant,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              minimumSize: const Size(48, 48),
-              tapTargetSize: MaterialTapTargetSize.padded,
-            ),
-            child: const Text('Copy link'),
-          ),
-        TextButton(
-          style: TextButton.styleFrom(
-            foregroundColor: theme.colorScheme.onSurfaceVariant,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            minimumSize: const Size(48, 48),
-            tapTargetSize: MaterialTapTargetSize.padded,
-          ),
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Close'),
         ),
       ],
     );

@@ -137,7 +137,9 @@ class ReadingSessionFlow {
       await maybeShowStreakCelebration(context, rewards.streak);
       if (!context.mounted) return;
       final stars = rewards.starsEarned;
-      await Navigator.of(context).pushReplacement(
+      // Use [push] so [HomeScreen] stays under this route; [popToHome] can pop back.
+      // [pushReplacement] would replace Home when it was the only route below → broken Home / Read another.
+      await Navigator.of(context).push<void>(
         MaterialPageRoute<void>(
           builder: (_) => RetellingCompleteScreen(
             bookTitle: book.title,
@@ -188,7 +190,7 @@ class ReadingSessionFlow {
       await maybeShowStreakCelebration(context, rewards.streak);
       if (!context.mounted) return;
       final stars = rewards.starsEarned;
-      await Navigator.of(context).pushReplacement(
+      await Navigator.of(context).push<void>(
         MaterialPageRoute<void>(
           builder: (_) => RetellingCompleteScreen(
             bookTitle: book.title,
