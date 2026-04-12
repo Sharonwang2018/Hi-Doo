@@ -79,15 +79,16 @@ You only know the book title, author, and optional catalog summary—not the ful
 Output ONLY valid JSON (no markdown):
 {
   "coach_intro": "<one very short encouraging line (max ~12 words), English>",
-  "retelling_prompt": "<ONE central inviting question only, e.g. Can you tell me what happened in the story from beginning to end?>",
+  "retelling_prompt": "<ONE central inviting question in English—fresh wording, tailored to this book when title/summary give hints>",
   "retelling_keywords": ["First", "Next", "Then", "Finally"],
   "questions": [],
   "retelling_hints": []
 }
 
 Rules:
-- retelling_prompt: exactly ONE child-friendly question in English—no bullet list, no multiple separate prompts.
-- retelling_keywords: exactly 4 short scaffold words in order: First, Next, Then, Finally (those words only unless a synonym is equally simple).
+- retelling_prompt: exactly ONE child-friendly question in English—no bullet list, no multiple prompts.
+- VARIETY (critical): Do NOT reuse the same stock sentence every time. Avoid always asking "what happened from beginning to end" or any single fixed template. Rotate natural angles using title/summary when you can: main character, setting, problem/solution, favorite moment, feelings, surprise, lesson, how it starts or ends, etc. If hints are thin, still vary the invitation phrasing across sessions.
+- retelling_keywords: exactly First, Next, Then, Finally (that order only).
 - retelling_hints: always [] (do not use).
 - English only; warm and simple for ages roughly 5–10.`;
 
@@ -95,14 +96,14 @@ const SYSTEM_BOOK_BOTH = `You combine two roles: (1) the same FUN grade 1–3 En
 
 1) Quiz: All quiz strings MUST be ENGLISH. Use playful, simple MCQs; explanations are short encouraging English (one or two brief sentences each). If summary is very thin, still build 3 questions from title + any summary + safe common sense—avoid quiz_unavailable unless the title is unusable and summary is empty (same bar as quiz-only). Never quiz author/ISBN/catalog meta.
 
-2) Storyteller: retelling_prompt = ONE central inviting question in English; retelling_keywords: ["First","Next","Then","Finally"]; retelling_hints: [].
+2) Storyteller: retelling_prompt = ONE varied inviting English question tailored to title/summary when possible—do not reuse identical stock wording every time; retelling_keywords: ["First","Next","Then","Finally"]; retelling_hints: [].
 
 RESPONSE FORMAT (JSON ONLY, no markdown):
 {
   "key_facts": ["...", "..."],
   "book_context": "...",
   "quiz": [ { "id": 1, "level": "Literal", "question": "...", "options": ["A) ...","B) ...","C) ..."], "answer": "A", "explanation": "..." }, ... 3 total ... ],
-  "retelling_prompt": "<ONE central question>",
+  "retelling_prompt": "<ONE varied English retelling invitation—tailor to this book; avoid stock templates>",
   "retelling_keywords": ["First", "Next", "Then", "Finally"],
   "retelling_hints": []
 }`;
@@ -338,9 +339,17 @@ router.post('/', quotaPreCheck('assessment'), async (req, res, next) => {
         : '';
       const userMsgBase = `The child is reading "${truncateText(title, 400)}" by ${author ? truncateText(author, 200) : 'an unknown author'}.${isbnLine}
 
-Follow your system instructions strictly. All quiz-facing text must be ENGLISH. Prefer a fun quiz whenever the title or summary gives any hook; use quiz_unavailable only in the rare case described in your system prompt. Do not ask who wrote the book—the author line is context only.
+Follow your system instructions strictly.${
+        mode === 'storyteller'
+          ? ' For storyteller: write a fresh retelling_prompt suited to THIS book—do not repeat the same generic question wording as other books.'
+          : ' All quiz-facing text must be ENGLISH. Prefer a fun quiz whenever the title or summary gives any hook; use quiz_unavailable only in the rare case described in your system prompt.'
+      } Do not ask who wrote the book—the author line is context only.
 
-Summary (story facts for the quiz; title may clarify; do not quiz author names): ${sum || '(none)'}${mcqUserLine}
+Summary (${
+        mode === 'storyteller'
+          ? 'use to shape a specific, varied retelling question'
+          : 'story facts for the quiz; title may clarify; do not quiz author names'
+      }): ${sum || '(none)'}${mcqUserLine}
 Return only the JSON object.`;
 
       const DEFAULT_QUIZ_FALLBACK =
