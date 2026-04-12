@@ -72,11 +72,23 @@ class _RetellingCompleteScreenState extends State<RetellingCompleteScreen> {
     }
   }
 
-  String _computeShareUrl() {
-    // 你的需求是“扫二维码打开网页”，当前版本没有深链到具体点评内容；
-    // 先保证能打开站点首页（同源页面），后续再接入带参数的深链。
-    if (kIsWeb) return Uri.base.origin;
-    return Uri.parse(EnvConfig.apiBaseUrl).origin;
+  /// Share link: same app entry with query params so the URL is not “just” bare origin.
+  /// Main.dart can later read `from` / `book` for a dedicated landing if desired.
+  String _computeShareUrl({String? bookTitle}) {
+    final origin =
+        kIsWeb ? Uri.base.origin : Uri.parse(EnvConfig.apiBaseUrl).origin;
+    var base = origin.trim();
+    if (base.endsWith('/')) base = base.substring(0, base.length - 1);
+    final u = Uri.parse(base);
+    final params = <String, String>{
+      'from': 'reading_poster',
+      'ref': 'hi-doo',
+    };
+    final t = bookTitle?.trim();
+    if (t != null && t.isNotEmpty) {
+      params['book'] = t.length > 120 ? '${t.substring(0, 117)}...' : t;
+    }
+    return u.replace(queryParameters: params).toString();
   }
 
   Future<void> _sharePoster(BuildContext context) async {
@@ -93,7 +105,7 @@ class _RetellingCompleteScreenState extends State<RetellingCompleteScreen> {
         bookTitle: widget.bookTitle ?? 'This book',
         bookCoverUrl: widget.bookCoverUrl,
         comment: widget.comment,
-        shareUrl: _computeShareUrl(),
+        shareUrl: _computeShareUrl(bookTitle: widget.bookTitle),
         starsEarned: widget.starsEarned,
         streakDays: streak,
         achieverLabel: achiever,
@@ -440,6 +452,7 @@ class _PosterShareDialogState extends State<_PosterShareDialog> {
   final GlobalKey _boundaryKey = GlobalKey();
   Uint8List? _posterBytes;
   bool _isGenerating = true;
+  bool _downloadBusy = false;
 
   static const double _posterW = 340;
   static const double _posterH = 620;
@@ -448,6 +461,33 @@ class _PosterShareDialogState extends State<_PosterShareDialog> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _generateAndShare());
+  }
+
+  Future<void> _downloadPosterToDevice() async {
+    final bytes = _posterBytes;
+    if (bytes == null || _downloadBusy) return;
+    setState(() => _downloadBusy = true);
+    try {
+      await downloadPosterPng(
+        bytes,
+        filename: 'hidoo_reading_achievement.png',
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Download started — check your downloads folder.',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not download: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _downloadBusy = false);
+    }
   }
 
   Future<void> _generateAndShare() async {
@@ -532,13 +572,19 @@ class _PosterShareDialogState extends State<_PosterShareDialog> {
                 alignment: Alignment.center,
                 children: [
                   if (_posterBytes != null)
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(20),
-                      child: Image.memory(
-                        _posterBytes!,
-                        width: _posterW,
-                        height: _posterH,
-                        fit: BoxFit.cover,
+                    GestureDetector(
+                      onLongPress: kIsWeb ? () => _downloadPosterToDevice() : null,
+                      child: Tooltip(
+                        message: 'Long-press or use Download below to save',
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(20),
+                          child: Image.memory(
+                            _posterBytes!,
+                            width: _posterW,
+                            height: _posterH,
+                            fit: BoxFit.cover,
+                          ),
+                        ),
                       ),
                     )
                   else
@@ -566,33 +612,19 @@ class _PosterShareDialogState extends State<_PosterShareDialog> {
               if (kIsWeb && _posterBytes != null) ...[
                 const SizedBox(height: 16),
                 FilledButton.icon(
-                  onPressed: () async {
-                    try {
-                      await downloadPosterPng(
-                        _posterBytes!,
-                        filename: 'hidoo_reading_achievement.png',
-                      );
-                      if (!context.mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            'Download started — check your downloads folder.',
-                          ),
-                        ),
-                      );
-                    } catch (e) {
-                      if (!context.mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Could not download: $e')),
-                      );
-                    }
-                  },
-                  icon: const Icon(Icons.download_rounded),
-                  label: const Text('Download Poster'),
+                  onPressed: _downloadBusy ? null : () => _downloadPosterToDevice(),
+                  icon: _downloadBusy
+                      ? const SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.download_rounded),
+                  label: Text(_downloadBusy ? 'Preparing…' : 'Download Poster'),
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  'Click the download button to save your poster!',
+                  'Tap Download Poster, or press and hold the image to save.',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                     fontWeight: FontWeight.w600,
