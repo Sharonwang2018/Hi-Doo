@@ -572,19 +572,13 @@ class _PosterShareDialogState extends State<_PosterShareDialog> {
                 alignment: Alignment.center,
                 children: [
                   if (_posterBytes != null)
-                    GestureDetector(
-                      onLongPress: kIsWeb ? () => _downloadPosterToDevice() : null,
-                      child: Tooltip(
-                        message: 'Long-press or use Download below to save',
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(20),
-                          child: Image.memory(
-                            _posterBytes!,
-                            width: _posterW,
-                            height: _posterH,
-                            fit: BoxFit.cover,
-                          ),
-                        ),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(20),
+                      child: Image.memory(
+                        _posterBytes!,
+                        width: _posterW,
+                        height: _posterH,
+                        fit: BoxFit.cover,
                       ),
                     )
                   else
@@ -610,7 +604,7 @@ class _PosterShareDialogState extends State<_PosterShareDialog> {
                 ],
               ),
               if (kIsWeb && _posterBytes != null) ...[
-                const SizedBox(height: 16),
+                const SizedBox(height: 18),
                 FilledButton.icon(
                   onPressed: _downloadBusy ? null : () => _downloadPosterToDevice(),
                   icon: _downloadBusy
@@ -619,12 +613,44 @@ class _PosterShareDialogState extends State<_PosterShareDialog> {
                           height: 22,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Icon(Icons.download_rounded),
-                  label: Text(_downloadBusy ? 'Preparing…' : 'Download Poster'),
+                      : const Icon(Icons.save_alt_rounded),
+                  label: Text(_downloadBusy ? 'Preparing…' : 'Save poster image'),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(52),
+                    textStyle: GoogleFonts.montserrat(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: _downloadBusy
+                      ? null
+                      : () {
+                          openPosterImageInNewTab(_posterBytes!);
+                          if (!context.mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Image opened in a new tab — use your browser’s Save or Share there (best on iPhone Safari).',
+                              ),
+                              duration: Duration(seconds: 5),
+                            ),
+                          );
+                        },
+                  icon: const Icon(Icons.open_in_new_rounded, size: 20),
+                  label: Text(
+                    'Open in new tab',
+                    style: GoogleFonts.montserrat(fontWeight: FontWeight.w700),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48),
+                  ),
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  'Tap Download Poster, or press and hold the image to save.',
+                  'Tap Save to download the PNG. On some phones (especially iPhone), use Open in new tab, then save the picture from there.',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                     fontWeight: FontWeight.w600,

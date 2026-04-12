@@ -5,3 +5,6 @@ Future<void> downloadPosterPng(
   Uint8List bytes, {
   required String filename,
 }) async {}
+
+/// No-op off-web.
+void openPosterImageInNewTab(Uint8List bytes) {}

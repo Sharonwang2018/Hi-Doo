@@ -27,7 +27,8 @@ Future<void> downloadPosterPng(
     final blob = html.Blob([bytes], 'image/png');
     objectUrl = html.Url.createObjectUrlFromBlob(blob);
     triggerDownload(objectUrl);
-    await Future<void>.delayed(const Duration(milliseconds: 800));
+    // Extra time for mobile / slow browsers before revoke.
+    await Future<void>.delayed(const Duration(milliseconds: 1500));
   } catch (_) {
     final failed = objectUrl;
     objectUrl = null;
@@ -46,4 +47,17 @@ Future<void> downloadPosterPng(
       } catch (_) {}
     }
   }
+}
+
+/// Opens the PNG in a new tab so the user can long-press / “Save image” (works on iOS Safari
+/// when the [download] attribute is ignored).
+void openPosterImageInNewTab(Uint8List bytes) {
+  final blob = html.Blob([bytes], 'image/png');
+  final url = html.Url.createObjectUrlFromBlob(blob);
+  html.window.open(url, '_blank');
+  Future<void>.delayed(const Duration(minutes: 2), () {
+    try {
+      html.Url.revokeObjectUrl(url);
+    } catch (_) {}
+  });
 }
