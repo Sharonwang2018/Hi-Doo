@@ -6,7 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 class ContactUsScreen extends StatelessWidget {
   const ContactUsScreen({super.key});
 
-  static const String _contactEmail = 'contact@hidoo.app';
+  static const String _contactEmail = 'hello@hidoo.org';
 
   Future<void> _openEmail(BuildContext context) async {
     final uri = Uri(
