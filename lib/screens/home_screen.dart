@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:echo_reading/env_config.dart';
 import 'package:echo_reading/models/book.dart';
 import 'package:echo_reading/screens/my_read_logs_screen.dart';
+import 'package:echo_reading/screens/contact_us_screen.dart';
 import 'package:echo_reading/screens/login_screen.dart';
 import 'package:echo_reading/services/api_auth_service.dart';
 import 'package:echo_reading/services/reading_streak_service.dart';
@@ -169,6 +170,13 @@ class _HomeScreenState extends State<HomeScreen> {
           if (mounted) showScanAboutSheet(context);
         });
         break;
+      case 'contact':
+        if (!mounted) break;
+        await Navigator.push<void>(
+          context,
+          MaterialPageRoute<void>(builder: (_) => const ContactUsScreen()),
+        );
+        break;
       case 'signin':
         final ok = await Navigator.push<bool>(
           context,
@@ -270,6 +278,16 @@ class _HomeScreenState extends State<HomeScreen> {
                       Icon(Icons.info_outline_rounded, size: 22),
                       SizedBox(width: 10),
                       Text('About & privacy'),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'contact',
+                  child: Row(
+                    children: [
+                      Icon(Icons.mail_outline_rounded, size: 22),
+                      SizedBox(width: 10),
+                      Text('Contact us'),
                     ],
                   ),
                 ),

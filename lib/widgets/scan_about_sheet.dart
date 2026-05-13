@@ -1,18 +1,31 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-/// Mission, program copy, and COPPA — shown from scan screen menu (not on camera view).
+/// Mission, program copy, COPPA, and research-informed product direction.
 Future<void> showScanAboutSheet(BuildContext context) {
   final cs = Theme.of(context).colorScheme;
+  TextStyle sectionTitle() => GoogleFonts.montserrat(
+        fontSize: 13,
+        fontWeight: FontWeight.w800,
+        letterSpacing: 0.3,
+        color: cs.primary,
+      );
+  TextStyle body() => GoogleFonts.montserrat(
+        fontSize: 13.5,
+        height: 1.5,
+        fontWeight: FontWeight.w400,
+        color: cs.onSurfaceVariant,
+      );
+
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
     builder: (ctx) {
       return DraggableScrollableSheet(
-        initialChildSize: 0.55,
-        minChildSize: 0.35,
-        maxChildSize: 0.92,
+        initialChildSize: 0.62,
+        minChildSize: 0.38,
+        maxChildSize: 0.94,
         expand: false,
         builder: (context, scrollController) {
           return SingleChildScrollView(
@@ -45,13 +58,41 @@ Future<void> showScanAboutSheet(BuildContext context) {
                 ),
                 const SizedBox(height: 14),
                 Text(
-                  "Free for families. Scan any child's book ISBN. Choose a challenge: Detail Detective (Quiz), Master Storyteller (Retell), or do both! Or, simply log your book to keep your reading streak alive.",
+                  "Free for families. Scan a child's book ISBN, then choose a challenge: "
+                  'Detail Detective (quiz questions) and Master Storyteller (retell) map to the classic loop below — '
+                  'or simply log a book to keep a reading streak.',
                   style: GoogleFonts.montserrat(
                     fontSize: 14,
                     height: 1.45,
                     fontWeight: FontWeight.w400,
                     color: cs.onSurfaceVariant,
                   ),
+                ),
+                const SizedBox(height: 22),
+                Text('Read → question → retell', style: sectionTitle()),
+                const SizedBox(height: 8),
+                Text(
+                  'Strong programs emphasize input, then sense-making (questions, clues), then output in the child’s own words. '
+                  'Hi-Doo is built around that cycle so comprehension—not just page count—is the point.',
+                  style: body(),
+                ),
+                const SizedBox(height: 22),
+                Text('What educators and families often look for', style: sectionTitle()),
+                const SizedBox(height: 8),
+                Text(
+                  '• Age- or level-appropriate reading choices (graded reading mindset)\n'
+                  '• Short AI-assisted prompts after reading, plus time to retell\n'
+                  '• Check-ins with a parent or teacher—sometimes in role-play—to strengthen expression in English, Chinese, or both\n'
+                  '• Clear feedback, badges, or small wins so practice feels motivating\n\n'
+                  'We use this landscape as a compass: Hi-Doo today focuses on scan-to-challenge flow, streaks, and respectful AI help where it fits.',
+                  style: body(),
+                ),
+                const SizedBox(height: 22),
+                Text('Design for children', style: sectionTitle()),
+                const SizedBox(height: 8),
+                Text(
+                  'Kids need simple paths and quick encouragement. We keep improving clarity, delight, and positive feedback so the app feels approachable—not like homework software.',
+                  style: body(),
                 ),
                 const SizedBox(height: 24),
                 Text(
@@ -73,6 +114,17 @@ Future<void> showScanAboutSheet(BuildContext context) {
                     fontWeight: FontWeight.w400,
                     height: 1.5,
                     color: cs.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Have research, school partnership, or product ideas? Use Contact us in the ⋮ menu (hello@hidoo.org).',
+                  style: GoogleFonts.montserrat(
+                    fontSize: 12,
+                    height: 1.45,
+                    fontWeight: FontWeight.w500,
+                    fontStyle: FontStyle.italic,
+                    color: cs.onSurfaceVariant.withValues(alpha: 0.9),
                   ),
                 ),
               ],

@@ -44,6 +44,17 @@ class NgoFooter extends StatelessWidget {
               color: cs.onSurface,
             ),
           ),
+          const SizedBox(height: 12),
+          Text(
+            'We care about read–question–retell: helping kids show understanding in their own words, not only finishing pages.',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.montserrat(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              height: 1.45,
+              color: cs.onSurfaceVariant,
+            ),
+          ),
           const SizedBox(height: 28),
           Container(
             padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
