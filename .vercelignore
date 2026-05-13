@@ -1,0 +1,29 @@
+# Shrink `vercel deploy` uploads — Vercel rebuilds Flutter web + runs `npm install` on the server.
+# See scripts/vercel_flutter_build.sh
+
+# Flutter / local tool cache
+.dart_tool/
+**/build/
+build/
+
+# Dependencies (installed during Vercel build)
+node_modules/
+server/node_modules/
+
+# Local uploads / runtime data (never ship)
+server/uploads/
+
+# Archives & artifacts
+*.zip
+build-web.zip
+
+# Tests / coverage
+coverage/
+**/coverage/
+
+# OS / IDE
+.DS_Store
+.idea/
+
+# Git metadata not needed for build
+.git/
